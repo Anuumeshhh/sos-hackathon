@@ -28,7 +28,7 @@ const state = {
   evidenceCache: {},
   lastSys: null,
   showHospitals: true,
-  dLayers: { ambulances: {}, incidents: {}, routes: {}, hospitals: null },
+  dLayers: { ambulances: {}, incidents: {}, routes: {}, returns: {}, hospitals: null },
   // real hospital data (OpenStreetMap via backend)
   hospitals: [],
   hospitalsTried: false,
@@ -542,7 +542,7 @@ function updateLiveMap(req, ambulances) {
   else setMarkerPos(live.patient, req.lat, req.lng);
 
   const amb = ambulances.find((a) => a.id === req.assigned_ambulance_id);
-  const tracking = amb && (req.status === "EN_ROUTE" || req.status === "ARRIVED");
+  const tracking = amb && (req.status === "EN_ROUTE" || (req.status === "ARRIVED" && amb.assigned_request_id === req.id));
   if (tracking) {
     const onThisJob = amb.assigned_request_id === req.id;
     const targetLat = onThisJob && amb.destination_lat != null ? amb.destination_lat : req.lat;
@@ -574,7 +574,7 @@ function updateLiveMap(req, ambulances) {
     [live.amb, live.route].forEach((l) => l && map.removeLayer(l));
     live.amb = live.route = null;
     const fitKey = `${req.id}:pin`;
-    if (live.fitKey !== fitKey && live.fitKey !== `${req.id}:${req.assigned_ambulance_id}`) {
+    if (req.status !== "ARRIVED" && live.fitKey !== fitKey && live.fitKey !== `${req.id}:${req.assigned_ambulance_id}`) {
       live.fitKey = fitKey;
       map.setView([req.lat, req.lng], 15);
     }
@@ -892,9 +892,10 @@ function renderFleet(sys) {
   setHtml($("fleet-strip"), sys.ambulances.map((amb) => `
     <div class="unit-mini-card">
       <div class="unit-top"><img src="assets/ambulance.svg" class="mini-ico" alt="" /><strong>${escapeHtml(amb.callsign)}</strong></div>
-      <span class="status-pill status-${amb.status === "AVAILABLE" ? "ARRIVED" : amb.status}">${amb.status}</span>
+      <span class="status-pill status-${amb.status === "AVAILABLE" ? "ARRIVED" : amb.status}">${amb.status === "AVAILABLE" && amb.phase === "RETURNING" ? "RETURNING" : amb.status}</span>
       <div class="inc-sub">${escapeHtml(amb.station_name)}</div>
       ${amb.status === "EN_ROUTE" ? `<div class="text-amber">ETA: <span data-amb-eta="${escapeHtml(amb.id)}"></span></div>` : ""}
+      ${amb.status === "AVAILABLE" && amb.phase === "RETURNING" ? `<div class="inc-sub">Back at base in <span data-amb-eta="${escapeHtml(amb.id)}"></span></div>` : ""}
     </div>`).join(""));
 }
 
@@ -946,6 +947,19 @@ function updateDispatcherMap(sys) {
       setMarkerPos(m, amb.current_lat, amb.current_lng);
       setMarkerIcon(m, "amb", cls);
     }
+  });
+
+  // returning units: dashed grey trace back to base (shrinks as they drive)
+  sys.ambulances.forEach((amb) => {
+    const returning = amb.status === "AVAILABLE" && amb.phase === "RETURNING";
+    let line = L1.returns[amb.id];
+    if (!returning) {
+      if (line) { map.removeLayer(line); delete L1.returns[amb.id]; }
+      return;
+    }
+    const path = remainingRoute(amb) || [[amb.current_lat, amb.current_lng], [amb.base_lat, amb.base_lng]];
+    if (!line) L1.returns[amb.id] = L.polyline(path, { color: "#94a3b8", weight: 4, opacity: 0.8, dashArray: "4, 8" }).addTo(map);
+    else line.setLatLngs(path);
   });
 
   // incidents + routes: add/remove by id, update in place

@@ -29,7 +29,7 @@ from models import (
 
 MAX_ACTIVE_INCIDENTS = 25
 COOLDOWN_SECONDS = 15
-ARRIVED_HOLD_SECONDS = 10
+ARRIVED_HOLD_SECONDS = 6
 HISTORY_TTL_SECONDS = 60
 DUPLICATE_RADIUS_METERS = 150.0
 
@@ -126,6 +126,9 @@ class DispatchManager:
             self.ambulances = {item["id"]: Ambulance(**item) for item in data.get("ambulances", [])}
             self.requests = {item["id"]: EmergencyRequest(**item) for item in data.get("requests", [])}
             self.phone_cooldowns = {str(k): float(v) for k, v in data.get("phone_cooldowns", {}).items()}
+            # Older saved demos only had 4 units: add any missing fleet units without touching live ones.
+            for unit in self._build_fleet():
+                self.ambulances.setdefault(unit.id, unit)
             return bool(self.ambulances)
         except (sqlite3.Error, ValueError, TypeError, KeyError):
             return False
@@ -134,49 +137,27 @@ class DispatchManager:
         with self._lock:
             if load_saved and self._load_saved():
                 return
-            # Demonstration fleet: sample units, not live hospital telemetry.
-            initial_fleet = [
-                Ambulance(
-                    id="amb-01",
-                    callsign="AMB-01 (Itahari Central)",
-                    station_name="Itahari Sub-Metro Health Post",
-                    base_lat=26.6632,
-                    base_lng=87.2745,
-                    current_lat=26.6632,
-                    current_lng=87.2745,
-                ),
-                Ambulance(
-                    id="amb-02",
-                    callsign="AMB-02 (Dharan Road)",
-                    station_name="BPKIHS Forward Rescue Point",
-                    base_lat=26.6815,
-                    base_lng=87.2712,
-                    current_lat=26.6815,
-                    current_lng=87.2712,
-                ),
-                Ambulance(
-                    id="amb-03",
-                    callsign="AMB-03 (Biratnagar Hwy)",
-                    station_name="Duhabi Corridor Trauma Unit",
-                    base_lat=26.6420,
-                    base_lng=87.2768,
-                    current_lat=26.6420,
-                    current_lng=87.2768,
-                ),
-                Ambulance(
-                    id="amb-04",
-                    callsign="AMB-04 (Purba-Paschim Hwy)",
-                    station_name="Kanchi Chowk Rapid Unit",
-                    base_lat=26.6658,
-                    base_lng=87.2480,
-                    current_lat=26.6658,
-                    current_lng=87.2480,
-                ),
-            ]
-            self.ambulances = {amb.id: amb for amb in initial_fleet}
+            self.ambulances = {amb.id: amb for amb in self._build_fleet()}
             self.requests.clear()
             self.phone_cooldowns.clear()
             self._persist()
+
+    @staticmethod
+    def _build_fleet() -> list:
+        # Demonstration fleet: sample units, not live hospital telemetry.
+        units = [
+            ("amb-01", "AMB-01 (Itahari Central)", "Itahari Sub-Metro Health Post", 26.6632, 87.2745),
+            ("amb-02", "AMB-02 (Dharan Road)", "BPKIHS Forward Rescue Point", 26.6815, 87.2712),
+            ("amb-03", "AMB-03 (Biratnagar Hwy)", "Duhabi Corridor Trauma Unit", 26.6420, 87.2768),
+            ("amb-04", "AMB-04 (Purba-Paschim Hwy)", "Kanchi Chowk Rapid Unit", 26.6658, 87.2480),
+            ("amb-05", "AMB-05 (Tarahara Road)", "Tarahara Rescue Post", 26.7020, 87.2830),
+            ("amb-06", "AMB-06 (Inaruwa Road)", "Inaruwa Link Rescue Post", 26.6560, 87.2330),
+            ("amb-07", "AMB-07 (Dharan Gate)", "Dharan Gate Rapid Unit", 26.7450, 87.2700),
+        ]
+        return [
+            Ambulance(id=i, callsign=c, station_name=st, base_lat=lat, base_lng=lng, current_lat=lat, current_lng=lng)
+            for i, c, st, lat, lng in units
+        ]
 
     def _find_nearest_hospital(self, lat: float, lng: float) -> Tuple[str, float, float]:
         hosp_list = hospitals.get_hospitals().get("hospitals", [])
@@ -199,6 +180,42 @@ class DispatchManager:
         amb.destination_name = None
         amb.destination_lat = None
         amb.destination_lng = None
+
+    def _start_return(self, amb: Ambulance) -> None:
+        """Send a finished unit driving back to its base. It is AVAILABLE while returning, so a new
+        request can be assigned to it and it will start from wherever it currently is."""
+        dist_km = haversine_km(amb.current_lat, amb.current_lng, amb.base_lat, amb.base_lng)
+        if dist_km < 0.05:
+            self._clear_ambulance(amb, reset_to_base=True)
+            return
+        eta = estimate_eta_seconds(dist_km)
+        road = fetch_road_route(amb.current_lat, amb.current_lng, amb.base_lat, amb.base_lng)
+        self._clear_ambulance(amb)
+        if road:
+            amb.route, amb.route_km, road_seconds = road
+            eta = max(15, min(int(road_seconds * 0.25) + 12, 180))
+        else:
+            amb.route, amb.route_km = None, round(dist_km, 2)
+        amb.status = AmbulanceStatus.AVAILABLE
+        amb.phase = "RETURNING"
+        amb.eta_total = eta
+        amb.eta_seconds = eta
+        amb.destination_name = amb.station_name
+        amb.destination_lat = amb.base_lat
+        amb.destination_lng = amb.base_lng
+
+    def _advance_return(self, amb: Ambulance, dt_seconds: float) -> None:
+        if amb.eta_seconds <= dt_seconds:
+            self._clear_ambulance(amb, reset_to_base=True)  # back at base
+            return
+        if amb.route and amb.eta_total:
+            amb.eta_seconds = max(1, int(round(amb.eta_seconds - dt_seconds)))
+            amb.current_lat, amb.current_lng = point_along(amb.route, 1 - amb.eta_seconds / float(amb.eta_total))
+        else:
+            fraction = min(1.0, dt_seconds / float(amb.eta_seconds))
+            amb.current_lat += (amb.base_lat - amb.current_lat) * fraction
+            amb.current_lng += (amb.base_lng - amb.current_lng) * fraction
+            amb.eta_seconds = max(1, int(round(amb.eta_seconds - dt_seconds)))
 
     def _find_nearest_available(self, lat: float, lng: float) -> Tuple[Optional[Ambulance], Optional[float]]:
         available = [a for a in self.ambulances.values() if a.status == AmbulanceStatus.AVAILABLE]
@@ -317,7 +334,7 @@ class DispatchManager:
             elif action == "FALSE_ALARM":
                 # Free the assigned unit if the dispatcher dismisses an active alert
                 if req.assigned_ambulance_id and req.assigned_ambulance_id in self.ambulances:
-                    self._clear_ambulance(self.ambulances[req.assigned_ambulance_id])
+                    self._start_return(self.ambulances[req.assigned_ambulance_id])
                 req.status = RequestStatus.FALSE_ALARM
                 req.eta_seconds = None
                 req.transport_phase = None
@@ -393,8 +410,15 @@ class DispatchManager:
                         amb.arrived_at = now
                         changed = True
                     elif now - amb.arrived_at >= ARRIVED_HOLD_SECONDS:
-                        self._clear_ambulance(amb, reset_to_base=True)
+                        self._start_return(amb)  # animate the drive back to base
                         changed = freed = True
+                    continue
+
+                if amb.status == AmbulanceStatus.AVAILABLE and amb.phase == "RETURNING":
+                    self._advance_return(amb, dt_seconds)
+                    changed = True
+                    if amb.phase is None:  # reached base
+                        freed = True
                     continue
 
                 if amb.status != AmbulanceStatus.EN_ROUTE or not amb.assigned_request_id:
@@ -402,7 +426,7 @@ class DispatchManager:
 
                 req = self.requests.get(amb.assigned_request_id)
                 if not req or req.status == RequestStatus.FALSE_ALARM:
-                    self._clear_ambulance(amb)
+                    self._start_return(amb)
                     changed = freed = True
                     continue
 
