@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RapidAid Itahari — Emergency Ambulance Dispatch</title>
+  <!-- Leaflet CSS via CDN -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  <meta name="theme-color" content="#0b0f17" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Top Navigation Bar -->
+  <header class="topbar">
+    <div class="brand" id="nav-home-btn" title="Home">
+      <div class="logo-wrap">
+        <img
+          src="assets/logo.svg"
+          alt="RapidAid Logo"
+          class="brand-logo"
+          onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
+        />
+        <div class="logo-fallback" style="display:none;">+</div>
+      </div>
+      <div>
+        <span class="brand-title">RAPIDAID</span>
+        <span class="brand-sub">Koshi Emergency Corridor</span>
+      </div>
+    </div>
+
+    <div class="topbar-actions">
+      <span id="connection-pill" class="conn-pill conn-checking">Connecting...</span>
+      <span id="user-chip" class="user-chip hidden"></span>
+      <button id="switch-role-btn" class="btn btn-ghost btn-sm hidden">Sign out</button>
+    </div>
+  </header>
+
+  <!-- SCREEN 1: START MENU (Google or email/password) -->
+  <main id="screen-auth" class="screen container">
+    <section class="auth-shell">
+      <div class="auth-art">
+        <div class="badge-live">LIVE DISPATCH &amp; ROUTING SIMULATION</div>
+        <h1>Help, <span class="grad-text">faster.</span></h1>
+        <p class="hero-desc">Emergency requests, dispatcher triage and live ambulance routing for the Itahari corridor.</p>
+        <img src="assets/hero-ambulance.svg" alt="Ambulance racing through the city" class="hero-art" />
+        <div class="chip-row">
+          <span class="feature-chip">Live GPS pin</span>
+          <span class="feature-chip">Nearest-unit match</span>
+          <span class="feature-chip">Duplicate detection</span>
+        </div>
+      </div>
+
+      <div class="auth-card">
+        <img src="assets/logo.svg" alt="RapidAid" class="auth-logo" />
+        <h2>Welcome to RapidAid</h2>
+        <p class="auth-sub">Sign in to continue. Dispatchers go straight to the command center, everyone else goes to the emergency portal.</p>
+
+        <div id="google-area">
+          <div id="google-signin-button" class="google-signin-box"></div>
+          <button type="button" id="btn-google-fallback" class="btn-google">
+            <img src="assets/google.svg" alt="" width="18" height="18" /> Continue with Google
+          </button>
+        </div>
+
+        <div class="divider"><span>or use email &amp; password</span></div>
+
+        <div class="tabs" role="tablist">
+          <button type="button" id="tab-signin" class="tab active" role="tab">Sign in</button>
+          <button type="button" id="tab-register" class="tab" role="tab">Create account</button>
+        </div>
+
+        <form id="auth-form" novalidate>
+          <div class="form-group hidden" id="reg-name-group">
+            <label for="auth-name">Full name</label>
+            <input type="text" id="auth-name" autocomplete="name" placeholder="e.g., Aarav Sharma" />
+          </div>
+          <div class="form-group">
+            <label for="auth-email">Email or username</label>
+            <input type="text" id="auth-email" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="you@example.com" />
+          </div>
+          <div class="form-group">
+            <label for="auth-password">Password</label>
+            <input type="password" id="auth-password" autocomplete="current-password" placeholder="Your password" />
+          </div>
+          <div id="auth-error" class="error-banner hidden"></div>
+          <button type="submit" id="btn-auth-submit" class="btn btn-primary btn-lg full-width">Sign in</button>
+        </form>
+
+        <button type="button" id="btn-guest" class="btn btn-ghost full-width guest-btn">
+          I need help right now &mdash; continue without an account
+        </button>
+      </div>
+    </section>
+  </main>
+
+  <!-- SCREEN 2: CUSTOMER / REQUESTER VIEW -->
+  <main id="screen-customer" class="screen container hidden">
+    <section class="card" aria-label="Demo ambulance availability">
+    <div class="card-header"><div><span class="eyebrow">DEMO FLEET STATUS</span><h2><span id="public-available-count">—</span> available units</h2></div></div>
+    <p class="hint-text">Simulated availability for the prototype; not connected to live ambulance providers.</p>
+    <div id="public-fleet-list" class="fleet-strip"></div>
+  </section>
+  <!-- Active Request Live Tracker (Hidden until submitted) -->
+    <section id="customer-tracker-card" class="card tracker-card hidden">
+      <div class="tracker-header">
+        <div>
+          <span class="eyebrow">ACTIVE EMERGENCY TICKET</span>
+          <h2 id="track-req-id">INC-000000</h2>
+        </div>
+        <span id="track-status-badge" class="status-pill status-PENDING">PENDING</span>
+      </div>
+
+      <div class="eta-box">
+        <div class="eta-main">
+          <span class="eta-label">ESTIMATED ARRIVAL</span>
+          <div id="track-eta-display" class="eta-value">Awaiting Dispatch</div>
+        </div>
+        <div class="eta-unit">
+          <span class="eta-label">ASSIGNED UNIT</span>
+          <div id="track-unit-display" class="unit-value">Unassigned</div>
+        </div>
+      </div>
+
+      <!-- Progress Stepper -->
+      <div class="progress-steps">
+        <div class="step-item" data-step="PENDING">1. Received</div>
+        <div class="step-item" data-step="VERIFIED">2. Verified</div>
+        <div class="step-item" data-step="EN_ROUTE">3. En Route</div>
+        <div class="step-item" data-step="ARRIVED">4. Arrived</div>
+      </div>
+
+      <div class="tracker-meta">
+        <p><strong>Patient:</strong> <span id="track-patient"></span> (<span id="track-phone"></span>)</p>
+        <p><strong>Severity:</strong> <span id="track-severity"></span></p>
+        <p><strong>Triage Notes:</strong> <span id="track-injuries"></span></p>
+        <p><strong>Pinned Location:</strong> <span id="track-location"></span></p>
+      </div>
+
+      <div id="customer-live-map-wrap" class="mini-map-wrap">
+        <div id="customer-live-map" class="map-box-sm"></div>
+      </div>
+
+      <button id="btn-new-request" class="btn btn-secondary full-width">Submit Another Request</button>
+    </section>
+
+    <!-- Emergency Request Form -->
+    <section id="customer-form-card" class="card">
+      <div class="card-header-row">
+        <div>
+          <span class="eyebrow">EMERGENCY REQUESTER</span>
+          <h2>Request Ambulance Dispatch</h2>
+        </div>
+        <label class="toggle-chip" title="Skip 15s anti-spam cooldown during live demos">
+          <input type="checkbox" id="demo-bypass-cooldown" />
+          <span>Demo Bypass Cooldown</span>
+        </label>
+      </div>
+
+      <form id="emergency-form" novalidate>
+        <!-- Step 1: Patient Info -->
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label for="patient-name">Patient / Caller Name *</label>
+            <input type="text" id="patient-name" placeholder="e.g., Aarav Sharma" required />
+          </div>
+          <div class="form-group">
+            <label for="patient-phone">Callback Phone Number *</label>
+            <input type="tel" id="patient-phone" placeholder="e.g., 9842012345" required />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="injury-description">What happened? Describe the injury or medical emergency *</label>
+          <textarea id="injury-description" rows="4" maxlength="1200" placeholder="Describe the patient's condition, injury, and any urgent details for the dispatcher." required></textarea>
+        </div>
+        <div class="form-group">
+          <label for="evidence-photo">Photo evidence (optional)</label>
+          <input type="file" id="evidence-photo" accept="image/*" />
+          <small class="hint-text">Optional image of the scene or injury. Avoid uploading unrelated or sensitive images.</small>
+        </div>
+
+        <div class="form-group">
+          <div class="location-header">
+            <label>Emergency location *</label>
+            <span id="coord-readout" class="coord-badge">Choose your location</span>
+          </div>
+          <button type="button" id="btn-use-location" class="btn btn-secondary btn-sm">Use my current location</button>
+          <div id="customer-map" class="map-box"></div>
+          <small class="hint-text">Allow location access to place the pin automatically, or tap/drag the pin to select the location manually.</small>
+        </div>
+
+        <div id="customer-error-box" class="error-banner hidden"></div>
+
+        <button type="submit" id="btn-submit-emergency" class="btn btn-danger btn-lg full-width">
+          DISPATCH EMERGENCY AMBULANCE
+        </button>
+      </form>
+    </section>
+  </main>
+
+  <!-- SCREEN 3: DISPATCHER COMMAND CENTER -->
+  <main id="screen-dispatcher" class="screen hidden">
+    <!-- Unlocked Command Center -->
+    <div id="dispatcher-workspace" class="workspace">
+      <!-- Fleet Summary Header -->
+      <div class="stats-bar">
+        <div class="station-tag">
+          <span class="eyebrow">ACTIVE STATION</span>
+          <strong id="active-station-name">Itahari Central Dispatch</strong>
+        </div>
+
+        <div class="stat-pills">
+          <div class="stat-box">
+            <span class="stat-num text-green" id="stat-available">0</span>
+            <span class="stat-lbl">Available Units</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-num text-amber" id="stat-enroute">0</span>
+            <span class="stat-lbl">En-Route</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-num text-red" id="stat-active">0</span>
+            <span class="stat-lbl">Active Incidents</span>
+          </div>
+        </div>
+
+        <button id="btn-reset-demo" class="btn btn-secondary btn-sm">Reset Demo</button>
+      </div>
+
+      <!-- Split Command Layout: Queue + Live Fleet Map -->
+      <div class="command-grid">
+        <!-- Left Panel: Incoming Triage Queue -->
+        <aside class="queue-panel">
+          <div class="panel-header">
+            <h3>Incoming Incident Queue</h3>
+            <span id="queue-count-badge" class="count-badge">0</span>
+          </div>
+          <div id="incident-queue-list" class="queue-list">
+            <div class="empty-state">No active emergency requests. Waiting for incoming alerts...</div>
+          </div>
+        </aside>
+
+        <!-- Right Panel: Live Fleet Map & Unit Cards -->
+        <section class="map-panel">
+          <div id="dispatcher-map" class="dispatcher-map-box"></div>
+          <div id="fleet-strip" class="fleet-strip"></div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <div id="lightbox" class="lightbox hidden" title="Click to close"><img id="lightbox-img" alt="Uploaded evidence photo" /></div>
+
+  <!-- Leaflet JS via CDN -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script src="app.js"></script>
+</body>
+</html>
