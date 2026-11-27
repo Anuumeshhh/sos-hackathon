@@ -1322,3 +1322,24 @@ body {
 .status-pill {
   transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
 }
+
+
+/* ---- Fix: fleet strip must never push over / get covered by the map (7 units wrap to 2 rows) ---- */
+.map-panel { min-height: 0; }
+.view-pane { flex: 1 1 0; min-height: 0; }
+.dispatcher-map-box { min-height: 0; height: 100%; }
+.fleet-strip {
+  flex: none;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.6rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #25483a transparent;
+}
+.unit-mini-card { flex: 0 0 210px; }
+@media (max-width: 900px) {
+  .dispatcher-map-box { min-height: 340px; }
+  .view-pane { flex: none; }
+}
