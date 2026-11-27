@@ -1,8 +1,8 @@
 """Accounts, roles and signed session tokens for RapidAid.
 
 Roles:
-  dispatcher -> command centre (admin login or an allow-listed Google account)
-  user       -> normal requester portal (any registered email or any Google account)
+  dispatcher -> command centre (demo admin login)
+  user       -> normal requester portal (any registered email)
 """
 import base64
 import hashlib
@@ -27,8 +27,6 @@ def _csv_env(name: str, default: str) -> set:
 # Defaults: admin / admin123  (and admin123 / admin).  Override in .env.
 DISPATCHER_IDS = _csv_env("DEMO_DISPATCHER_IDS", "admin,admin123")
 DISPATCHER_PASSWORDS = {v.strip() for v in os.getenv("DEMO_DISPATCHER_PASSWORDS", "admin123,admin").split(",") if v.strip()}
-# Google accounts that become dispatchers. Every other Google account is a normal user.
-DISPATCHER_GOOGLE_EMAILS = _csv_env("DISPATCHER_GOOGLE_EMAILS", "")
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 

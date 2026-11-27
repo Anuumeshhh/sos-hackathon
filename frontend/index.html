@@ -13,7 +13,7 @@
   />
   <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
   <meta name="theme-color" content="#06110d" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=3" />
 </head>
 <body>
   <!-- Top Navigation Bar -->
@@ -36,12 +36,13 @@
 
     <div class="topbar-actions">
       <span id="connection-pill" class="conn-pill conn-checking">Connecting...</span>
+      <button id="sound-btn" class="btn btn-ghost btn-sm" type="button" title="Toggle sound effects">Sound on</button>
       <span id="user-chip" class="user-chip hidden"></span>
       <button id="switch-role-btn" class="btn btn-ghost btn-sm hidden">Sign out</button>
     </div>
   </header>
 
-  <!-- SCREEN 1: START MENU (Google or email/password) -->
+  <!-- SCREEN 1: START MENU (email/password) -->
   <main id="screen-auth" class="screen container">
     <section class="auth-shell">
       <div class="auth-art">
@@ -65,15 +66,6 @@
         <img src="assets/logo.svg" alt="RapidAid" class="auth-logo" />
         <h2>Welcome to RapidAid</h2>
         <p class="auth-sub">Sign in to continue. Dispatchers go straight to the command center, everyone else goes to the emergency portal.</p>
-
-        <div id="google-area">
-          <div id="google-signin-button" class="google-signin-box"></div>
-          <button type="button" id="btn-google-fallback" class="btn-google">
-            <img src="assets/google.svg" alt="" width="18" height="18" /> Continue with Google
-          </button>
-        </div>
-
-        <div class="divider"><span>or use email &amp; password</span></div>
 
         <div class="tabs" role="tablist">
           <button type="button" id="tab-signin" class="tab active" role="tab">Sign in</button>
@@ -282,6 +274,6 @@
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin=""
   ></script>
-  <script src="app.js"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>

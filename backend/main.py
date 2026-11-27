@@ -27,7 +27,6 @@ log = logging.getLogger("rapidaid")
 manager = DispatchManager()
 users = auth.UserStore(manager.db_path)
 TICK_INTERVAL_SECONDS = 1.5
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
 FRONTEND_DIR = _HERE.parent / "frontend"
 
 
@@ -40,10 +39,6 @@ class RegisterPayload(BaseModel):
     name: str
     email: str
     password: str
-
-
-class GoogleLoginPayload(BaseModel):
-    credential: str
 
 
 def session_response(sub: str, role: str, name: str, picture: str = "") -> dict:
@@ -93,17 +88,21 @@ app = FastAPI(title="RapidAid Ambulance Dispatch API", version="2.1.0", lifespan
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["GET", "POST"], allow_headers=["*"])
 
 
+@app.middleware("http")
+async def no_cache_static(request: Request, call_next):
+    # always serve the latest frontend files (prevents stale app.js/styles.css after edits)
+    response = await call_next(request)
+    if not request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 @app.get("/api/health")
 def health_check():
     return {"status": "ok", "service": "rapidaid-api", "database": "SQLite"}
 
 
 # ---------------- auth ----------------
-@app.get("/api/auth/config")
-def auth_config():
-    return {"google_client_id": GOOGLE_CLIENT_ID, "google_enabled": bool(GOOGLE_CLIENT_ID)}
-
-
 _attempts: dict = {}  # (ip, identifier) -> recent failed-login timestamps
 MAX_FAILS, WINDOW_S = 6, 60
 
@@ -142,27 +141,7 @@ def register(payload: RegisterPayload):
     return session_response(email, "user", name)
 
 
-@app.post("/api/auth/google")
-def google_login(payload: GoogleLoginPayload):
-    if not GOOGLE_CLIENT_ID:
-        raise HTTPException(status_code=503, detail="Google login is not configured. Set GOOGLE_CLIENT_ID in .env and restart.")
-    try:
-        from google.auth.transport import requests as g_requests
-        from google.oauth2 import id_token
 
-        info = id_token.verify_oauth2_token(payload.credential, g_requests.Request(), GOOGLE_CLIENT_ID, clock_skew_in_seconds=10)
-    except ImportError as exc:
-        log.error("Google auth dependency missing: %s (run: pip install -r requirements.txt)", exc)
-        raise HTTPException(status_code=500, detail="Server is missing a Google auth dependency. Run: pip install -r backend/requirements.txt")
-    except Exception as exc:
-        log.warning("Google token rejected: %s", exc)
-        raise HTTPException(status_code=401, detail="Google sign-in could not be verified. Check GOOGLE_CLIENT_ID and that this page's origin is authorised in Google Cloud.")
-
-    email = str(info.get("email", "")).lower()
-    if not email or not info.get("email_verified"):
-        raise HTTPException(status_code=401, detail="Your Google email is not verified.")
-    role = "dispatcher" if email in auth.DISPATCHER_GOOGLE_EMAILS else "user"
-    return session_response(email, role, info.get("name") or email.split("@")[0], info.get("picture", ""))
 
 
 # ---------------- public ----------------
@@ -230,6 +209,6 @@ def reset_demo(_: str = Depends(require_dispatcher)):
 
 
 # Serve the frontend from the same origin: open http://localhost:8000
-# (same origin also makes Google sign-in work without extra CORS/origin setup).
+# .
 if FRONTEND_DIR.is_dir():
     app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")

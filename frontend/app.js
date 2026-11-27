@@ -9,8 +9,6 @@ const state = {
   role: "auth",
   authMode: "signin",
   online: false,
-  googleInit: false,
-  googleLoading: false,
   selectedLat: ITAHARI_CENTER[0],
   selectedLng: ITAHARI_CENTER[1],
   selectedLocationLabel: "Selected location",
@@ -40,6 +38,108 @@ const state = {
 
 // ---------- Helpers ----------
 const $ = (id) => document.getElementById(id);
+
+// ---------- Sound effects (synthesised with WebAudio: no audio files needed) ----------
+const Sfx = (() => {
+  let ctx = null;
+  let muted = localStorage.getItem("rapidaid_muted") === "1";
+  const ensure = () => {
+    if (muted) return null;
+    try {
+      ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+      if (ctx.state === "suspended") ctx.resume();
+    } catch (_) { return null; }
+    return ctx;
+  };
+  // one enveloped oscillator note
+  function tone(freq, start, dur, { type = "sine", vol = 0.18, to = null } = {}) {
+    const c = ensure();
+    if (!c) return;
+    const t0 = c.currentTime + start;
+    const osc = c.createOscillator();
+    const gain = c.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t0);
+    if (to) osc.frequency.exponentialRampToValueAtTime(to, t0 + dur);
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(gain).connect(c.destination);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.05);
+  }
+  return {
+    get muted() { return muted; },
+    setMuted(v) { muted = v; localStorage.setItem("rapidaid_muted", v ? "1" : "0"); },
+    unlock: ensure,
+    // UI click
+    click() { tone(1100, 0, 0.045, { type: "square", vol: 0.05 }); tone(720, 0.03, 0.05, { type: "square", vol: 0.035 }); },
+    // heart-monitor beep (ECG)
+    ecg() { tone(1000, 0, 0.16, { vol: 0.12 }); },
+    // double "lub-dub" heartbeat
+    heartbeat() { tone(70, 0, 0.14, { vol: 0.35 }); tone(55, 0.2, 0.16, { vol: 0.28 }); },
+    // ambulance two-tone siren (~2.4s)
+    siren() { for (let i = 0; i < 3; i++) { tone(960, i * 0.8, 0.4, { type: "sawtooth", vol: 0.07 }); tone(720, i * 0.8 + 0.4, 0.4, { type: "sawtooth", vol: 0.07 }); } },
+    // dispatcher: new emergency incoming
+    alert() { for (let i = 0; i < 3; i++) tone(880, i * 0.22, 0.14, { type: "square", vol: 0.09 }); },
+    // patient picked up
+    pickup() { tone(660, 0, 0.14, { vol: 0.16 }); tone(880, 0.15, 0.22, { vol: 0.16 }); Sfx_ecgLater(); },
+    // arrived at hospital
+    arrive() { [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.12, 0.35, { vol: 0.14 })); },
+    // submit / success confirmation
+    success() { tone(587, 0, 0.12, { vol: 0.14 }); tone(880, 0.12, 0.25, { vol: 0.14 }); },
+    // errors
+    error() { tone(220, 0, 0.22, { type: "sawtooth", vol: 0.1 }); tone(165, 0.2, 0.28, { type: "sawtooth", vol: 0.1 }); },
+  };
+})();
+function Sfx_ecgLater() { setTimeout(() => Sfx.ecg(), 450); setTimeout(() => Sfx.ecg(), 1100); }
+
+// Plays a sound when a request moves to a new stage (assigned, picked up, arrived).
+// `first` renders (page load / reload) are silent so old tickets don't replay sounds.
+const sfxSeen = { dispatcher: {}, customer: {} };
+function sfxTrack(who, req) {
+  const seen = sfxSeen[who];
+  const key = `${req.status}:${req.transport_phase || ""}`;
+  const prev = seen[req.id];
+  seen[req.id] = key;
+  if (prev === undefined) {
+    if (seen.__primed && who === "dispatcher" && req.status === "PENDING") Sfx.alert();
+    return;
+  }
+  if (prev === key) return;
+  if (req.status === "EN_ROUTE" && req.transport_phase === "TO_PATIENT") Sfx.siren();
+  else if (req.status === "EN_ROUTE" && req.transport_phase === "TO_HOSPITAL") Sfx.pickup();
+  else if (req.status === "ARRIVED") Sfx.arrive();
+  else if (req.status === "VERIFIED") Sfx.heartbeat();
+}
+
+// ---------- Route helpers ----------
+// The ambulance has already driven part of amb.route. Keep only what is still ahead of it,
+// so the trace disappears behind the vehicle as it passes.
+// Position is found by projecting the ambulance onto the route (never moving backwards),
+// so it does not depend on ETA maths staying perfectly in sync.
+const routeProgress = {};
+function remainingRoute(amb) {
+  const r = amb.route;
+  if (!r || r.length < 2) return null;
+  const here = [amb.current_lat, amb.current_lng];
+  const key = `${amb.id}:${amb.phase}:${r.length}:${r[0][0]}`;
+  const start = routeProgress[key] || 0;
+  const kx = Math.cos((here[0] * Math.PI) / 180);
+  let best = start;
+  let bestD = Infinity;
+  for (let i = start; i < r.length - 1; i++) {
+    const ax = r[i][1] * kx, ay = r[i][0], bx = r[i + 1][1] * kx, by = r[i + 1][0];
+    const px = here[1] * kx, py = here[0];
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy || 1e-12;
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+    const d = (px - (ax + t * dx)) ** 2 + (py - (ay + t * dy)) ** 2;
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  routeProgress[key] = best;
+  return [here, ...r.slice(best + 1)];
+}
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -295,6 +395,7 @@ function requestBrowserLocation(showErrors = true) {
 }
 
 function showCustomerError(message) {
+  Sfx.error();
   const box = $("customer-error-box");
   box.textContent = message;
   box.classList.remove("hidden");
@@ -356,6 +457,7 @@ async function submitEmergencyPayload() {
     const created = await apiFetch("/api/requests", { method: "POST", body: JSON.stringify(payload) });
     state.activeRequestId = created.id;
     localStorage.setItem("active_request_id", created.id);
+    Sfx.success();
     showCustomerTracker();
     renderCustomerTracker(created, []);
   } catch (err) {
@@ -420,6 +522,8 @@ function renderCustomerTracker(req, ambulances) {
   document.querySelectorAll("#customer-tracker-card .step-item").forEach((el) => {
     el.classList.toggle("active", idx !== -1 && idx >= order.indexOf(el.dataset.step));
   });
+  sfxTrack("customer", req);
+  sfxSeen.customer.__primed = true;
   updateLiveMap(req, ambulances);
 }
 
@@ -430,7 +534,11 @@ function updateLiveMap(req, ambulances) {
   if (state.live.reqId !== req.id) { resetLiveMap(); state.live.reqId = req.id; }
   const live = state.live;
 
-  if (!live.patient) live.patient = L.marker([req.lat, req.lng], { icon: mkIcon("user", "sev-CRITICAL pulse") }).addTo(map);
+  // Once the patient is on board (heading to hospital) or dropped off, the pickup pin is gone.
+  const pickedUp = req.transport_phase === "TO_HOSPITAL" || req.transport_phase === "AT_HOSPITAL" || req.status === "ARRIVED";
+  if (pickedUp) {
+    if (live.patient) { map.removeLayer(live.patient); live.patient = null; }
+  } else if (!live.patient) live.patient = L.marker([req.lat, req.lng], { icon: mkIcon("user", "sev-CRITICAL pulse") }).addTo(map);
   else setMarkerPos(live.patient, req.lat, req.lng);
 
   const amb = ambulances.find((a) => a.id === req.assigned_ambulance_id);
@@ -441,7 +549,7 @@ function updateLiveMap(req, ambulances) {
     const targetLng = onThisJob && amb.destination_lng != null ? amb.destination_lng : req.lng;
     const ambLat = onThisJob ? amb.current_lat : targetLat;
     const ambLng = onThisJob ? amb.current_lng : targetLng;
-    const path = amb.route && amb.route.length > 1 ? amb.route : [[ambLat, ambLng], [targetLat, targetLng]];
+    const path = (onThisJob && remainingRoute(amb)) || [[ambLat, ambLng], [targetLat, targetLng]];
     const cls = req.status === "ARRIVED" ? "arrived" : "en-route";
     if (!live.amb) {
       live.amb = L.marker([ambLat, ambLng], { icon: mkIcon("amb", cls), zIndexOffset: 900 }).addTo(map);
@@ -450,10 +558,9 @@ function updateLiveMap(req, ambulances) {
       setMarkerIcon(live.amb, "amb", cls);
     }
     if (req.status === "EN_ROUTE") {
-      const rk = `${amb.phase || "TO_PATIENT"}:${amb.route ? amb.route.length : 0}`;
-      if (!live.route) live.route = L.polyline(path, { color: "#3b82f6", weight: 5, opacity: 0.85, dashArray: amb.route ? null : "6, 6" }).addTo(map);
-      else if (!amb.route || live.route._rk !== rk) live.route.setLatLngs(path);
-      live.route._rk = rk;
+      const color = amb.phase === "TO_HOSPITAL" ? "#10b981" : "#ef4444";
+      if (!live.route) live.route = L.polyline(path, { color, weight: 5, opacity: 0.85, dashArray: amb.route ? null : "6, 6" }).addTo(map);
+      else { live.route.setLatLngs(path); live.route.setStyle({ color, dashArray: amb.route ? null : "6, 6" }); }
     } else if (live.route) {
       map.removeLayer(live.route);
       live.route = null;
@@ -474,8 +581,9 @@ function updateLiveMap(req, ambulances) {
   }
 }
 
-// ---------- Sign in / Google / Create account ----------
+// ---------- Sign in / Create account ----------
 function showAuthError(message) {
+  Sfx.error();
   const box = $("auth-error");
   box.textContent = message;
   box.classList.remove("hidden");
@@ -490,52 +598,6 @@ function setAuthMode(mode) {
   $("btn-auth-submit").textContent = reg ? "Create account" : "Sign in";
   $("auth-password").autocomplete = reg ? "new-password" : "current-password";
   $("auth-error").classList.add("hidden");
-}
-
-function googleNotReadyMessage() {
-  if (location.protocol === "file:") return "Open the app at http://localhost:8000 (not by double-clicking the file). Google sign-in only works from there.";
-  if (!state.online) return "The backend server is offline. Start it (cd backend, then uvicorn main:app --port 8000), reload, and try again.";
-  return "Google sign-in isn't set up yet. Add GOOGLE_CLIENT_ID to the .env file and restart the server. You can use email & password for now.";
-}
-
-async function initializeGoogleLogin() {
-  if (state.googleLoading) return;
-  state.googleLoading = true;
-  try { await setupGoogle(); } finally { state.googleLoading = false; }
-}
-
-async function setupGoogle() {
-  const fallback = $("btn-google-fallback");
-  fallback.onclick = () => showAuthError(googleNotReadyMessage());
-
-  let config;
-  try { config = await apiFetch("/api/auth/config"); } catch (_) { return; } // backend offline: retried automatically
-  state.googleInit = true;
-  if (!config.google_enabled || !config.google_client_id) return;
-
-  fallback.onclick = () => showAuthError("Loading Google sign-in... if this stays, check your internet connection and reload.");
-  const script = document.createElement("script");
-  script.src = "https://accounts.google.com/gsi/client";
-  script.async = true;
-  script.onerror = () => showAuthError("Couldn't load Google sign-in. Check your internet connection.");
-  script.onload = () => {
-    if (!window.google?.accounts?.id) return;
-    window.google.accounts.id.initialize({
-      client_id: config.google_client_id,
-      callback: async (response) => {
-        try {
-          const result = await apiFetch("/api/auth/google", { method: "POST", body: JSON.stringify({ credential: response.credential }) });
-          saveSession(result);
-          routeAfterLogin();
-        } catch (err) {
-          showAuthError(err.message);
-        }
-      },
-    });
-    window.google.accounts.id.renderButton($("google-signin-button"), { theme: "filled_black", size: "large", text: "continue_with", shape: "pill", width: 320 });
-    fallback.classList.add("hidden");
-  };
-  document.head.appendChild(script);
 }
 
 function setupAuthHandlers() {
@@ -581,7 +643,6 @@ function setupAuthHandlers() {
   });
 
   $("btn-guest").addEventListener("click", () => { clearSession(); setRole("customer"); });
-  initializeGoogleLogin();
 }
 
 // ---------- Dispatcher: view switching ----------
@@ -663,7 +724,10 @@ function initDispatcherMap() {
 // ---------- Dispatcher: rendering ----------
 const isResolved = (r) => r.status === "ARRIVED" || r.status === "FALSE_ALARM";
 
+const RESOLVED_VISIBLE_SECONDS = 60;
 function renderDispatcherView(sys) {
+  // arrived / dismissed incidents leave the queue 1 minute after they finish
+  sys.requests = sys.requests.filter((r) => !(isResolved(r) && r.completed_at && sys.server_time - r.completed_at >= RESOLVED_VISIBLE_SECONDS));
   state.lastSys = sys;
   const available = sys.ambulances.filter((a) => a.status === "AVAILABLE");
   const active = sys.requests.filter((r) => !isResolved(r));
@@ -672,6 +736,8 @@ function renderDispatcherView(sys) {
   $("stat-active").textContent = active.length;
   $("queue-count-badge").textContent = active.length;
 
+  sys.requests.forEach((r) => sfxTrack("dispatcher", r));
+  sfxSeen.dispatcher.__primed = true;
   renderQueue(sys);
   renderDetail(sys);
   renderFleet(sys);
@@ -887,9 +953,13 @@ function updateDispatcherMap(sys) {
   sys.requests.forEach((req) => {
     if (req.status === "FALSE_ALARM") return;
     liveIds.add(req.id);
-    const cls = `sev-${req.severity}${req.status === "ARRIVED" ? " done" : ""}${req.id === state.selectedIncidentId ? " selected" : ""}`;
+    // patient asset disappears once they are picked up (en route to hospital) or dropped off
+    const pickedUp = req.status === "ARRIVED" || req.transport_phase === "TO_HOSPITAL" || req.transport_phase === "AT_HOSPITAL";
+    const cls = `sev-${req.severity}${req.id === state.selectedIncidentId ? " selected" : ""}`;
     let m = L1.incidents[req.id];
-    if (!m) {
+    if (pickedUp) {
+      if (m) { map.removeLayer(m); delete L1.incidents[req.id]; }
+    } else if (!m) {
       m = L1.incidents[req.id] = L.marker([req.lat, req.lng], { icon: mkIcon("user", cls) })
         .addTo(map)
         .bindTooltip(escapeHtml(req.patient_name))
@@ -909,15 +979,14 @@ function updateDispatcherMap(sys) {
     const road = amb.route && amb.route.length > 1;
     const destLat = amb.destination_lat != null ? amb.destination_lat : req.lat;
     const destLng = amb.destination_lng != null ? amb.destination_lng : req.lng;
-    const path = road ? amb.route : [[amb.current_lat, amb.current_lng], [destLat, destLng]];
-    const key = road ? `r${amb.route.length}:${amb.route[0][0]}:${amb.phase || ""}` : `s:${amb.phase || ""}`;
+    // only the part of the route still ahead of the ambulance is drawn
+    const path = (road && remainingRoute(amb)) || [[amb.current_lat, amb.current_lng], [destLat, destLng]];
+    const color = amb.phase === "TO_HOSPITAL" ? "#10b981" : "#ef4444";
     if (!line) {
-      line = L1.routes[req.id] = L.polyline(path, { color: amb.phase === "TO_HOSPITAL" ? "#10b981" : "#ef4444", weight: 5, opacity: 0.85, dashArray: road ? null : "8, 6" }).addTo(map);
-      line._rk = key;
-    } else if (!road || line._rk !== key) {
+      line = L1.routes[req.id] = L.polyline(path, { color, weight: 5, opacity: 0.85, dashArray: road ? null : "8, 6" }).addTo(map);
+    } else {
       line.setLatLngs(path);
-      line.setStyle({ color: amb.phase === "TO_HOSPITAL" ? "#10b981" : "#ef4444", dashArray: road ? null : "8, 6" });
-      line._rk = key;
+      line.setStyle({ color, dashArray: road ? null : "8, 6" });
     }
   });
   Object.keys(L1.incidents).forEach((id) => {
@@ -972,6 +1041,16 @@ window.addEventListener("DOMContentLoaded", () => {
 
   setupAuthHandlers();
   setupCustomerHandlers();
+
+  // sound: unlock audio on first interaction, click feedback on any button-like control, mute toggle
+  window.addEventListener("pointerdown", () => Sfx.unlock(), { once: true });
+  document.addEventListener("click", (e) => {
+    if (e.target.closest("button, .tab, .view-tab, .inc-card, .toggle-chip, .btn, .brand")) Sfx.click();
+  }, true);
+  const soundBtn = $("sound-btn");
+  const paintSound = () => { soundBtn.textContent = Sfx.muted ? "Sound off" : "Sound on"; soundBtn.setAttribute("aria-pressed", String(!Sfx.muted)); };
+  paintSound();
+  soundBtn.addEventListener("click", () => { Sfx.setMuted(!Sfx.muted); paintSound(); if (!Sfx.muted) Sfx.ecg(); });
   setupDispatcherHandlers();
 
   if (getSession()) routeAfterLogin();
@@ -982,7 +1061,6 @@ window.addEventListener("DOMContentLoaded", () => {
   state.pollTimer = setInterval(() => {
     if (state.role === "auth") {
       ping();
-      if (!state.googleInit) initializeGoogleLogin();
     } else {
       pollSystemState();
       if (!state.hospitals.length && Date.now() - state.hospitalsLoadedAt > 30000) loadHospitals();
