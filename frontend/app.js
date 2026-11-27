@@ -78,6 +78,8 @@ function setHtml(el, html) {
   if (el.dataset.html === html) return false;
   const saved = {};
   el.querySelectorAll("select").forEach((s) => { if (s.id) saved[s.id] = s.value; });
+  const scrollParent = el.id === "detail-body" ? el.parentElement : null;
+  const parentScrollTop = scrollParent ? scrollParent.scrollTop : 0;
   const scrollTop = el.scrollTop;
   el.innerHTML = html;
   el.dataset.html = html;
@@ -85,6 +87,7 @@ function setHtml(el, html) {
     if (saved[s.id] && [...s.options].some((o) => o.value === saved[s.id])) s.value = saved[s.id];
   });
   el.scrollTop = scrollTop;
+  if (scrollParent) scrollParent.scrollTop = parentScrollTop;
   return true;
 }
 
@@ -337,7 +340,7 @@ function setupCustomerHandlers() {
     const phone = $("patient-phone").value.trim();
     const description = $("injury-description").value.trim();
     if (name.length < 2) return showCustomerError("Please enter the patient or caller name.");
-    if (!/^[0-9+\-\s]{7,18}$/.test(phone)) return showCustomerError("Please enter a valid callback phone number.");
+    if (!/^[0-9+\-\s]{7,18}$/.test(phone) || phone.replace(/\D/g, "").length < 7) return showCustomerError("Please enter a valid callback phone number.");
     if (description.length < 5) return showCustomerError("Please describe the injury or medical emergency.");
     await submitEmergencyPayload();
   });
@@ -459,12 +462,15 @@ function updateLiveMap(req, ambulances) {
   const amb = ambulances.find((a) => a.id === req.assigned_ambulance_id);
   const tracking = amb && (req.status === "EN_ROUTE" || req.status === "ARRIVED");
   if (tracking) {
-    const path = amb.route && amb.route.length > 1 ? amb.route : [[amb.current_lat, amb.current_lng], [req.lat, req.lng]];
+    const onThisJob = amb.assigned_request_id === req.id;
+    const ambLat = onThisJob ? amb.current_lat : req.lat;
+    const ambLng = onThisJob ? amb.current_lng : req.lng;
+    const path = amb.route && amb.route.length > 1 ? amb.route : [[ambLat, ambLng], [req.lat, req.lng]];
     const cls = req.status === "ARRIVED" ? "arrived" : "en-route";
     if (!live.amb) {
-      live.amb = L.marker([amb.current_lat, amb.current_lng], { icon: mkIcon("amb", cls), zIndexOffset: 900 }).addTo(map);
+      live.amb = L.marker([ambLat, ambLng], { icon: mkIcon("amb", cls), zIndexOffset: 900 }).addTo(map);
     } else {
-      setMarkerPos(live.amb, amb.current_lat, amb.current_lng);
+      setMarkerPos(live.amb, ambLat, ambLng);
       setMarkerIcon(live.amb, "amb", cls);
     }
     if (req.status === "EN_ROUTE") {
@@ -478,7 +484,7 @@ function updateLiveMap(req, ambulances) {
     const fitKey = `${req.id}:${amb.id}`;
     if (live.fitKey !== fitKey) {
       live.fitKey = fitKey;
-      map.fitBounds(L.latLngBounds([[amb.current_lat, amb.current_lng], [req.lat, req.lng]]), { padding: [40, 40] });
+      map.fitBounds(L.latLngBounds([[ambLat, ambLng], [req.lat, req.lng]]), { padding: [40, 40] });
     }
   } else {
     [live.amb, live.route].forEach((l) => l && map.removeLayer(l));
@@ -654,8 +660,14 @@ function setupDispatcherHandlers() {
   $("btn-reset-demo").addEventListener("click", async () => {
     try {
       state.selectedIncidentId = null;
+      state.photoShownFor = null;
+      state.evidenceCache = {};
       renderDispatcherView(await apiFetch("/api/reset", { method: "POST" }));
     } catch (err) { alert("Reset failed: " + err.message); }
+  });
+  $("lightbox").addEventListener("click", () => $("lightbox").classList.add("hidden"));
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") $("lightbox").classList.add("hidden");
   });
 }
 
@@ -726,6 +738,7 @@ function renderDetail(sys) {
   tab.disabled = !req;
   if (!req) {
     state.selectedIncidentId = null;
+    tab.textContent = "Incident details";
     if (state.dView === "detail") setDispatcherView("map");
     return;
   }
@@ -818,8 +831,13 @@ function fillPhoto(req) {
   if (!req.has_evidence) { slot.innerHTML = ""; return; }
   const show = (src) => {
     if (state.selectedIncidentId !== req.id) return;
-    slot.innerHTML = `<div class="detail-card wide"><h4>Photo evidence</h4><img class="evidence-img" alt="Uploaded evidence photo" /></div>`;
-    slot.querySelector("img").src = src;
+    slot.innerHTML = `<div class="detail-card wide"><h4>Photo evidence</h4><img class="evidence-img" alt="Uploaded evidence photo" style="cursor:zoom-in" /></div>`;
+    const img = slot.querySelector("img");
+    img.src = src;
+    img.onclick = () => {
+      $("lightbox-img").src = src;
+      $("lightbox").classList.remove("hidden");
+    };
   };
   if (state.evidenceCache[req.id]) return show(state.evidenceCache[req.id]);
   slot.innerHTML = `<div class="detail-card wide"><h4>Photo evidence</h4><div class="muted">Loading photo...</div></div>`;
@@ -874,7 +892,7 @@ function updateDispatcherMap(sys) {
     if (!m) {
       m = L1.ambulances[amb.id] = L.marker([amb.current_lat, amb.current_lng], { icon: mkIcon("amb", cls), zIndexOffset: 900 })
         .addTo(map)
-        .bindTooltip(`${amb.callsign}`);
+        .bindTooltip(escapeHtml(amb.callsign));
       m._ikey = `amb|${cls}`;
     } else {
       setMarkerPos(m, amb.current_lat, amb.current_lng);
@@ -892,7 +910,7 @@ function updateDispatcherMap(sys) {
     if (!m) {
       m = L1.incidents[req.id] = L.marker([req.lat, req.lng], { icon: mkIcon("user", cls) })
         .addTo(map)
-        .bindTooltip(`${req.patient_name}`)
+        .bindTooltip(escapeHtml(req.patient_name))
         .on("click", () => selectIncident(req.id));
       m._ikey = `user|${cls}`;
     } else {
