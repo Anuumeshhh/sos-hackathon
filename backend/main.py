@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -12,12 +13,13 @@ _HERE = Path(__file__).resolve().parent
 load_dotenv(_HERE.parent / ".env")
 load_dotenv(_HERE / ".env")
 
-from fastapi import Depends, FastAPI, Header, HTTPException  # noqa: E402
+from fastapi import Depends, FastAPI, Header, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
 import auth  # noqa: E402
+import hospitals  # noqa: E402
 from dispatch import DispatchManager  # noqa: E402
 from models import AssignPayload, CreateRequestPayload, EmergencyRequest, SystemState, TriagePayload  # noqa: E402
 
@@ -44,8 +46,9 @@ class GoogleLoginPayload(BaseModel):
     credential: str
 
 
-def session_response(sub: str, role: str, name: str) -> dict:
+def session_response(sub: str, role: str, name: str, picture: str = "") -> dict:
     return {
+        "picture": picture,
         "access_token": auth.issue_token(sub, role, name),
         "token_type": "bearer",
         "role": role,
@@ -101,14 +104,26 @@ def auth_config():
     return {"google_client_id": GOOGLE_CLIENT_ID, "google_enabled": bool(GOOGLE_CLIENT_ID)}
 
 
+_attempts: dict = {}  # (ip, identifier) -> recent failed-login timestamps
+MAX_FAILS, WINDOW_S = 6, 60
+
+
 @app.post("/api/auth/login")
-def login(payload: LoginPayload):
+def login(payload: LoginPayload, request: Request):
     ident = payload.email.strip().lower()
+    key = (request.client.host if request.client else "?", ident)
+    now = time.time()
+    recent = [t for t in _attempts.get(key, []) if now - t < WINDOW_S]
+    if len(recent) >= MAX_FAILS:
+        raise HTTPException(status_code=429, detail="Too many failed attempts. Wait a minute and try again.")
     if auth.is_demo_dispatcher(ident, payload.password):
+        _attempts.pop(key, None)
         return session_response(ident, "dispatcher", "Dispatcher")
     name = users.verify(ident, payload.password)
     if name:
+        _attempts.pop(key, None)
         return session_response(ident, "user", name)
+    _attempts[key] = recent + [now]
     raise HTTPException(status_code=401, detail="Incorrect email or password.")
 
 
@@ -147,7 +162,7 @@ def google_login(payload: GoogleLoginPayload):
     if not email or not info.get("email_verified"):
         raise HTTPException(status_code=401, detail="Your Google email is not verified.")
     role = "dispatcher" if email in auth.DISPATCHER_GOOGLE_EMAILS else "user"
-    return session_response(email, role, info.get("name") or email.split("@")[0])
+    return session_response(email, role, info.get("name") or email.split("@")[0], info.get("picture", ""))
 
 
 # ---------------- public ----------------
@@ -168,6 +183,12 @@ def get_own_request(request_id: str):
     public = req.model_copy()
     public.evidence_data = None
     return public
+
+
+@app.get("/api/hospitals")
+def get_hospitals():
+    """Real hospitals near Itahari (OpenStreetMap), cached 24h."""
+    return hospitals.get_hospitals()
 
 
 @app.post("/api/requests", response_model=EmergencyRequest)

@@ -8,6 +8,11 @@ from enum import Enum
 from typing import Dict, Optional, Tuple
 from fastapi import HTTPException
 
+try:
+    import requests
+except ImportError:  # routing falls back to straight lines
+    requests = None
+
 from models import (
     Ambulance,
     AmbulanceStatus,
@@ -40,6 +45,40 @@ def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     )
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return round(earth_radius_km * c, 3)
+
+
+def fetch_road_route(lat1: float, lng1: float, lat2: float, lng2: float):
+    """Real road geometry from the public OSRM server. Returns (points, km, seconds) or None."""
+    if requests is None or os.getenv("RAPIDAID_ROUTING", "on").lower() == "off":
+        return None
+    try:
+        url = f"https://router.project-osrm.org/route/v1/driving/{lng1},{lat1};{lng2},{lat2}?overview=full&geometries=geojson"
+        res = requests.get(url, timeout=3.5, headers={"User-Agent": "RapidAid-hackathon/2.2"})
+        data = res.json()
+        if data.get("code") != "Ok":
+            return None
+        route = data["routes"][0]
+        pts = [[c[1], c[0]] for c in route["geometry"]["coordinates"]]
+        if len(pts) > 250:  # keep the 1.5s poll light
+            step = len(pts) / 250.0
+            pts = [pts[int(i * step)] for i in range(250)] + [pts[-1]]
+        return pts, round(route["distance"] / 1000.0, 2), float(route["duration"])
+    except Exception:
+        return None
+
+
+def point_along(route, fraction: float):
+    fraction = max(0.0, min(1.0, fraction))
+    seg = [haversine_km(route[i][0], route[i][1], route[i + 1][0], route[i + 1][1]) for i in range(len(route) - 1)]
+    total = sum(seg) or 1e-9
+    target = total * fraction
+    done = 0.0
+    for i, length in enumerate(seg):
+        if done + length >= target:
+            t = (target - done) / length if length else 0.0
+            return route[i][0] + (route[i + 1][0] - route[i][0]) * t, route[i][1] + (route[i + 1][1] - route[i][1]) * t
+        done += length
+    return route[-1][0], route[-1][1]
 
 
 def estimate_eta_seconds(distance_km: float) -> int:
@@ -245,6 +284,7 @@ class DispatchManager:
                 amb = self.ambulances[req.assigned_ambulance_id]
                 amb.status = AmbulanceStatus.AVAILABLE
                 amb.assigned_request_id = None
+                amb.route = None
                 amb.eta_seconds = 0
             req.status = RequestStatus.FALSE_ALARM
             req.eta_seconds = None
@@ -279,6 +319,13 @@ class DispatchManager:
                 raise HTTPException(status_code=409, detail="No available ambulances right now.")
 
         eta = estimate_eta_seconds(dist_km)
+        road = fetch_road_route(amb.current_lat, amb.current_lng, req.lat, req.lng)
+        if road:
+            amb.route, amb.route_km, road_seconds = road
+            eta = max(15, min(int(road_seconds * 0.25) + 12, 180))  # same 4x time compression as before
+        else:
+            amb.route, amb.route_km = None, round(dist_km, 2)
+        amb.eta_total = eta
 
         amb.status = AmbulanceStatus.EN_ROUTE
         amb.assigned_request_id = req.id
@@ -307,6 +354,7 @@ class DispatchManager:
                     amb.status = AmbulanceStatus.AVAILABLE
                     amb.current_lat, amb.current_lng = amb.base_lat, amb.base_lng
                     amb.assigned_request_id = None
+                    amb.route = None
                     amb.arrived_at = None
                     amb.eta_seconds = 0
                     changed = freed = True
@@ -319,6 +367,7 @@ class DispatchManager:
             if not req or req.status == RequestStatus.FALSE_ALARM:
                 amb.status = AmbulanceStatus.AVAILABLE
                 amb.assigned_request_id = None
+                amb.route = None
                 amb.eta_seconds = 0
                 changed = freed = True
                 continue
@@ -330,13 +379,18 @@ class DispatchManager:
                 amb.eta_seconds = 0
                 amb.status = AmbulanceStatus.ARRIVED
                 amb.arrived_at = now
+                amb.route = None
                 req.eta_seconds = 0
                 req.status = RequestStatus.ARRIVED
             else:
-                fraction = min(1.0, dt_seconds / float(amb.eta_seconds))
-                amb.current_lat += (req.lat - amb.current_lat) * fraction
-                amb.current_lng += (req.lng - amb.current_lng) * fraction
-                amb.eta_seconds = max(1, int(round(amb.eta_seconds - dt_seconds)))
+                if amb.route and amb.eta_total:
+                    amb.eta_seconds = max(1, int(round(amb.eta_seconds - dt_seconds)))
+                    amb.current_lat, amb.current_lng = point_along(amb.route, 1 - amb.eta_seconds / float(amb.eta_total))
+                else:
+                    fraction = min(1.0, dt_seconds / float(amb.eta_seconds))
+                    amb.current_lat += (req.lat - amb.current_lat) * fraction
+                    amb.current_lng += (req.lng - amb.current_lng) * fraction
+                    amb.eta_seconds = max(1, int(round(amb.eta_seconds - dt_seconds)))
                 req.eta_seconds = amb.eta_seconds
 
         if freed:

@@ -1194,3 +1194,117 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .marker-sos { animation: none; }
 }
+
+
+/* =========================================================
+   v2.2: map icons, details screen, hospitals, login polish
+   ========================================================= */
+
+/* ---- Map markers (ambulance / hospital / user logos) ---- */
+.mk {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid var(--blue);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55);
+  transition: transform 0.15s, border-color 0.2s, opacity 0.2s;
+}
+.mk img { width: 76%; height: 76%; object-fit: contain; pointer-events: none; user-select: none; }
+.mk-hosp { border-color: #2563eb; }
+.mk-amb.available { border-color: var(--green); }
+.mk-amb.en-route { border-color: var(--amber); }
+.mk-amb.arrived { border-color: #64748b; }
+.mk-user.sev-CRITICAL { border-color: var(--red); }
+.mk-user.sev-URGENT { border-color: var(--amber); }
+.mk-user.sev-STANDARD { border-color: var(--blue); }
+.mk-user.done { opacity: 0.5; filter: grayscale(1); }
+.mk.selected { transform: scale(1.25); box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.75), 0 4px 12px rgba(0, 0, 0, 0.55); }
+.mk.pulse { animation: sosPulse 1.6s ease-out infinite; }
+
+/* ambulances glide between the 1.5s position updates instead of teleporting */
+.leaflet-marker-icon.smooth { transition: transform 1.45s linear; }
+.leaflet-zoom-anim .leaflet-marker-icon.smooth { transition: transform 0.25s cubic-bezier(0, 0, 0.25, 1); }
+
+.mini-ico { width: 18px; height: 18px; vertical-align: -3px; object-fit: contain; }
+.inline-ico { width: 26px; height: 26px; vertical-align: -6px; }
+.avatar { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; background: #e2e8f0; margin-right: 0.45rem; vertical-align: middle; }
+.user-chip { display: inline-flex; align-items: center; }
+
+/* ---- Login polish ---- */
+.pw-wrap { position: relative; }
+.pw-wrap input { padding-right: 4.2rem; }
+.pw-toggle {
+  position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%);
+  border: 0; background: transparent; color: #93c5fd; font: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+}
+.offline-banner {
+  margin-bottom: 1rem; padding: 0.75rem 0.9rem; border-radius: 10px; font-size: 0.85rem;
+  background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.5); color: #fde68a;
+}
+.offline-banner code { background: rgba(0, 0, 0, 0.35); padding: 0.05rem 0.35rem; border-radius: 5px; }
+
+/* ---- Hospitals ---- */
+.hospital-list { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.6rem 0; }
+.hospital-row {
+  display: flex; align-items: center; gap: 0.7rem; padding: 0.55rem 0.7rem;
+  background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px;
+}
+.hospital-row.compact { padding: 0.4rem 0.55rem; margin-top: 0.4rem; }
+.hospital-ico { width: 34px; height: 34px; flex: none; }
+.hospital-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.hospital-info strong { font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hospital-info span { font-size: 0.76rem; color: var(--text-muted); }
+
+/* ---- Dispatcher: map / details switch ---- */
+.map-panel { min-height: 0; overflow: hidden; }
+.view-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;
+  padding: 0.55rem 0.85rem; background: var(--bg-card); border-bottom: 1px solid var(--border);
+}
+.view-tabs { display: inline-flex; gap: 0.25rem; padding: 0.22rem; background: var(--bg-elevated); border-radius: 12px; }
+.view-tab {
+  padding: 0.45rem 1rem; border: 0; border-radius: 9px; background: transparent;
+  color: var(--text-muted); font: inherit; font-weight: 600; font-size: 0.88rem; cursor: pointer;
+}
+.view-tab.active { background: var(--blue); color: #fff; }
+.view-tab:disabled { opacity: 0.4; cursor: not-allowed; }
+.view-pane { flex: 1; min-height: 0; }
+.view-map { display: flex; }
+.view-detail { overflow-y: auto; padding: 1.25rem 1.5rem 2rem; }
+
+.inc-card { cursor: pointer; transition: border-color 0.15s, background 0.15s, transform 0.1s; }
+.inc-card:hover { background: #222d42; transform: translateX(2px); }
+.inc-card.is-selected { outline: 2px solid var(--blue); background: #1f2b42; }
+.inc-open { font-size: 0.78rem; font-weight: 600; color: #93c5fd; }
+.unit-top { display: flex; align-items: center; gap: 0.4rem; }
+
+.detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.detail-head h2 { font-size: 1.8rem; letter-spacing: 0.02em; }
+.detail-badges { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.4rem; }
+.detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.9rem; }
+.detail-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 1rem 1.1rem; }
+.detail-card.wide { grid-column: 1 / -1; }
+.detail-card h4 { font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.55rem; }
+.big-line { font-size: 1.15rem; font-weight: 700; }
+.muted { color: var(--text-muted); font-size: 0.82rem; }
+.report { white-space: pre-wrap; font-size: 1rem; line-height: 1.6; }
+.phone-link { display: inline-block; margin-top: 0.2rem; font-size: 1.05rem; font-weight: 600; color: #93c5fd; text-decoration: none; }
+.detail-card a { color: #93c5fd; }
+.eta-row { display: flex; align-items: baseline; gap: 0.8rem; margin: 0.5rem 0; }
+.eta-big { font-size: 1.8rem; font-weight: 800; color: var(--amber); }
+.progress { height: 8px; border-radius: 999px; background: var(--bg-elevated); overflow: hidden; }
+.progress-fill { height: 100%; width: 0; border-radius: 999px; background: linear-gradient(90deg, var(--amber), var(--green)); transition: width 1.4s linear; }
+.evidence-img { display: block; max-width: 100%; max-height: 420px; border-radius: 10px; }
+#detail-photo { margin-top: 0.9rem; }
+.detail-actions { display: flex; flex-direction: column; gap: 0.7rem; margin-top: 1.1rem; max-width: 520px; }
+.assign-row { display: flex; gap: 0.6rem; }
+.assign-row select { flex: 1; }
+
+@media (max-width: 900px) {
+  .view-detail { padding: 1rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mk.pulse { animation: none; }
+  .leaflet-marker-icon.smooth, .progress-fill { transition: none; }
+}

@@ -37,6 +37,9 @@ class Ambulance(BaseModel):
     assigned_request_id: Optional[str] = None
     eta_seconds: int = 0
     arrived_at: Optional[float] = None
+    route: Optional[List[List[float]]] = None  # [[lat,lng],...] road geometry while en route
+    route_km: Optional[float] = None
+    eta_total: int = 0
 
 
 class EmergencyRequest(BaseModel):

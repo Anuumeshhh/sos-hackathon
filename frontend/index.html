@@ -57,6 +57,11 @@
       </div>
 
       <div class="auth-card">
+        <div id="offline-banner" class="offline-banner hidden">
+          <strong>Backend server is offline.</strong>
+          Start it in a terminal: <code>cd backend</code> then <code>uvicorn main:app --port 8000</code>, and open
+          <code>http://localhost:8000</code>.
+        </div>
         <img src="assets/logo.svg" alt="RapidAid" class="auth-logo" />
         <h2>Welcome to RapidAid</h2>
         <p class="auth-sub">Sign in to continue. Dispatchers go straight to the command center, everyone else goes to the emergency portal.</p>
@@ -86,7 +91,10 @@
           </div>
           <div class="form-group">
             <label for="auth-password">Password</label>
-            <input type="password" id="auth-password" autocomplete="current-password" placeholder="Your password" />
+            <div class="pw-wrap">
+              <input type="password" id="auth-password" autocomplete="current-password" placeholder="Your password" />
+              <button type="button" id="btn-toggle-pw" class="pw-toggle" aria-label="Show password">Show</button>
+            </div>
           </div>
           <div id="auth-error" class="error-banner hidden"></div>
           <button type="submit" id="btn-auth-submit" class="btn btn-primary btn-lg full-width">Sign in</button>
@@ -101,11 +109,17 @@
 
   <!-- SCREEN 2: CUSTOMER / REQUESTER VIEW -->
   <main id="screen-customer" class="screen container hidden">
-    <section class="card" aria-label="Demo ambulance availability">
-    <div class="card-header"><div><span class="eyebrow">DEMO FLEET STATUS</span><h2><span id="public-available-count">—</span> available units</h2></div></div>
-    <p class="hint-text">Simulated availability for the prototype; not connected to live ambulance providers.</p>
-    <div id="public-fleet-list" class="fleet-strip"></div>
-  </section>
+    <section class="card" id="nearby-card" aria-label="Nearby hospitals">
+      <div class="card-header">
+        <div>
+          <span class="eyebrow">NEARBY HOSPITALS &middot; OPENSTREETMAP</span>
+          <h2><img src="assets/hospital.svg" alt="" class="inline-ico" /> Closest emergency care</h2>
+        </div>
+        <span id="fleet-badge" class="count-badge" title="Simulated demo fleet">&mdash;</span>
+      </div>
+      <div id="nearby-hospitals" class="hospital-list"><div class="empty-state">Loading real hospital data...</div></div>
+      <p class="hint-text">Hospital locations are real (OpenStreetMap). Ambulance units are a simulated demo fleet, since no public live ambulance feed exists. In Nepal you can also dial <strong>102</strong> for an ambulance.</p>
+    </section>
   <!-- Active Request Live Tracker (Hidden until submitted) -->
     <section id="customer-tracker-card" class="card tracker-card hidden">
       <div class="tracker-header">
@@ -248,7 +262,23 @@
 
         <!-- Right Panel: Live Fleet Map & Unit Cards -->
         <section class="map-panel">
-          <div id="dispatcher-map" class="dispatcher-map-box"></div>
+          <div class="view-bar">
+            <div class="view-tabs" role="tablist">
+              <button type="button" id="btn-view-map" class="view-tab active">Map</button>
+              <button type="button" id="btn-view-detail" class="view-tab" disabled>Incident details</button>
+            </div>
+            <label class="toggle-chip" title="Show real hospitals from OpenStreetMap on the map">
+              <input type="checkbox" id="toggle-hospitals" checked />
+              <span>Hospitals</span>
+            </label>
+          </div>
+          <div id="view-map" class="view-pane view-map">
+            <div id="dispatcher-map" class="dispatcher-map-box"></div>
+          </div>
+          <div id="view-detail" class="view-pane view-detail hidden">
+            <div id="detail-body"></div>
+            <div id="detail-photo"></div>
+          </div>
           <div id="fleet-strip" class="fleet-strip"></div>
         </section>
       </div>
