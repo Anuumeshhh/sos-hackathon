@@ -14,6 +14,7 @@ try:
 except ImportError:  # routing falls back to straight lines
     requests = None
 
+import hospitals
 from models import (
     Ambulance,
     AmbulanceStatus,
@@ -26,10 +27,10 @@ from models import (
     SeverityLevel,
 )
 
-# hard cap so rapid test runs don't bloat memory
 MAX_ACTIVE_INCIDENTS = 25
 COOLDOWN_SECONDS = 15
-ARRIVED_HOLD_SECONDS = 10  # unit stays on scene briefly, then returns to base and is available again
+ARRIVED_HOLD_SECONDS = 10
+HISTORY_TTL_SECONDS = 60
 DUPLICATE_RADIUS_METERS = 150.0
 
 
@@ -177,6 +178,28 @@ class DispatchManager:
             self.phone_cooldowns.clear()
             self._persist()
 
+    def _find_nearest_hospital(self, lat: float, lng: float) -> Tuple[str, float, float]:
+        hosp_list = hospitals.get_hospitals().get("hospitals", [])
+        if hosp_list:
+            nearest = min(hosp_list, key=lambda h: haversine_km(lat, lng, h["lat"], h["lng"]))
+            return nearest["name"], float(nearest["lat"]), float(nearest["lng"])
+        return "Itahari Sub-Metro Health Post", 26.6632, 87.2745
+
+    def _clear_ambulance(self, amb: Ambulance, reset_to_base: bool = False) -> None:
+        amb.status = AmbulanceStatus.AVAILABLE
+        if reset_to_base:
+            amb.current_lat, amb.current_lng = amb.base_lat, amb.base_lng
+        amb.assigned_request_id = None
+        amb.route = None
+        amb.route_km = None
+        amb.arrived_at = None
+        amb.eta_seconds = 0
+        amb.eta_total = 0
+        amb.phase = None
+        amb.destination_name = None
+        amb.destination_lat = None
+        amb.destination_lng = None
+
     def _find_nearest_available(self, lat: float, lng: float) -> Tuple[Optional[Ambulance], Optional[float]]:
         available = [a for a in self.ambulances.values() if a.status == AmbulanceStatus.AVAILABLE]
         if not available:
@@ -292,15 +315,13 @@ class DispatchManager:
                     if payload.severity:
                         req.severity = payload.severity
             elif action == "FALSE_ALARM":
-                # release unit back to AVAILABLE if dispatcher cancels an already-dispatched alert
+                # Free the assigned unit if the dispatcher dismisses an active alert
                 if req.assigned_ambulance_id and req.assigned_ambulance_id in self.ambulances:
-                    amb = self.ambulances[req.assigned_ambulance_id]
-                    amb.status = AmbulanceStatus.AVAILABLE
-                    amb.assigned_request_id = None
-                    amb.route = None
-                    amb.eta_seconds = 0
+                    self._clear_ambulance(self.ambulances[req.assigned_ambulance_id])
                 req.status = RequestStatus.FALSE_ALARM
                 req.eta_seconds = None
+                req.transport_phase = None
+                req.completed_at = time.time()
                 self._refresh_nearest_metrics()
             else:
                 raise HTTPException(status_code=400, detail="Invalid triage action. Use VERIFY or FALSE_ALARM.")
@@ -336,7 +357,7 @@ class DispatchManager:
             road = fetch_road_route(amb.current_lat, amb.current_lng, req.lat, req.lng)
             if road:
                 amb.route, amb.route_km, road_seconds = road
-                eta = max(15, min(int(road_seconds * 0.25) + 12, 180))  # same 4x time compression as before
+                eta = max(15, min(int(road_seconds * 0.25) + 12, 180))
             else:
                 amb.route, amb.route_km = None, round(dist_km, 2)
             amb.eta_total = eta
@@ -344,11 +365,17 @@ class DispatchManager:
             amb.status = AmbulanceStatus.EN_ROUTE
             amb.assigned_request_id = req.id
             amb.eta_seconds = eta
+            amb.phase = "TO_PATIENT"
+            amb.destination_name = req.location_label
+            amb.destination_lat = req.lat
+            amb.destination_lng = req.lng
 
             req.status = RequestStatus.EN_ROUTE
             req.assigned_ambulance_id = amb.id
             req.assigned_callsign = amb.callsign
             req.eta_seconds = eta
+            req.transport_phase = "TO_PATIENT"
+            req.destination_hospital = None
 
             self._refresh_nearest_metrics()
             self._persist()
@@ -360,18 +387,13 @@ class DispatchManager:
             changed = False
             freed = False
             for amb in self.ambulances.values():
-                # Fix: units used to stay ARRIVED forever, so the fleet ran out after a few incidents.
+                # Hold briefly at the hospital after drop-off, then return unit to base
                 if amb.status == AmbulanceStatus.ARRIVED:
                     if amb.arrived_at is None:
                         amb.arrived_at = now
                         changed = True
                     elif now - amb.arrived_at >= ARRIVED_HOLD_SECONDS:
-                        amb.status = AmbulanceStatus.AVAILABLE
-                        amb.current_lat, amb.current_lng = amb.base_lat, amb.base_lng
-                        amb.assigned_request_id = None
-                        amb.route = None
-                        amb.arrived_at = None
-                        amb.eta_seconds = 0
+                        self._clear_ambulance(amb, reset_to_base=True)
                         changed = freed = True
                     continue
 
@@ -380,37 +402,75 @@ class DispatchManager:
 
                 req = self.requests.get(amb.assigned_request_id)
                 if not req or req.status == RequestStatus.FALSE_ALARM:
-                    amb.status = AmbulanceStatus.AVAILABLE
-                    amb.assigned_request_id = None
-                    amb.route = None
-                    amb.eta_seconds = 0
+                    self._clear_ambulance(amb)
                     changed = freed = True
                     continue
 
                 changed = True
+                phase = amb.phase or "TO_PATIENT"
+                target_lat = amb.destination_lat if amb.destination_lat is not None else req.lat
+                target_lng = amb.destination_lng if amb.destination_lng is not None else req.lng
+
                 if amb.eta_seconds <= dt_seconds:
-                    amb.current_lat = req.lat
-                    amb.current_lng = req.lng
-                    amb.eta_seconds = 0
-                    amb.status = AmbulanceStatus.ARRIVED
-                    amb.arrived_at = now
-                    amb.route = None
-                    req.eta_seconds = 0
-                    req.status = RequestStatus.ARRIVED
+                    amb.current_lat = target_lat
+                    amb.current_lng = target_lng
+
+                    if phase == "TO_PATIENT":
+                        # Patient collected: route from pickup point to nearest hospital
+                        hosp_name, hosp_lat, hosp_lng = self._find_nearest_hospital(req.lat, req.lng)
+                        dist_km = haversine_km(req.lat, req.lng, hosp_lat, hosp_lng)
+                        eta = estimate_eta_seconds(dist_km)
+                        road = fetch_road_route(req.lat, req.lng, hosp_lat, hosp_lng)
+                        if road:
+                            amb.route, amb.route_km, road_seconds = road
+                            eta = max(15, min(int(road_seconds * 0.25) + 12, 180))
+                        else:
+                            amb.route, amb.route_km = None, round(dist_km, 2)
+                        amb.eta_total = eta
+                        amb.eta_seconds = eta
+                        amb.phase = "TO_HOSPITAL"
+                        amb.destination_name = hosp_name
+                        amb.destination_lat = hosp_lat
+                        amb.destination_lng = hosp_lng
+                        req.eta_seconds = eta
+                        req.transport_phase = "TO_HOSPITAL"
+                        req.destination_hospital = hosp_name
+                    else:
+                        # Dropped off at hospital
+                        amb.eta_seconds = 0
+                        amb.status = AmbulanceStatus.ARRIVED
+                        amb.arrived_at = now
+                        amb.route = None
+                        amb.phase = "AT_HOSPITAL"
+                        req.eta_seconds = 0
+                        req.status = RequestStatus.ARRIVED
+                        req.transport_phase = "AT_HOSPITAL"
+                        req.completed_at = now
                 else:
                     if amb.route and amb.eta_total:
                         amb.eta_seconds = max(1, int(round(amb.eta_seconds - dt_seconds)))
                         amb.current_lat, amb.current_lng = point_along(amb.route, 1 - amb.eta_seconds / float(amb.eta_total))
                     else:
                         fraction = min(1.0, dt_seconds / float(amb.eta_seconds))
-                        amb.current_lat += (req.lat - amb.current_lat) * fraction
-                        amb.current_lng += (req.lng - amb.current_lng) * fraction
+                        amb.current_lat += (target_lat - amb.current_lat) * fraction
+                        amb.current_lng += (target_lng - amb.current_lng) * fraction
                         amb.eta_seconds = max(1, int(round(amb.eta_seconds - dt_seconds)))
                     req.eta_seconds = amb.eta_seconds
 
+            # Clean up completed/dismissed requests older than 1 minute
+            expired_ids = [
+                rid for rid, r in self.requests.items()
+                if r.status in (RequestStatus.ARRIVED, RequestStatus.FALSE_ALARM)
+                and r.completed_at is not None
+                and now - r.completed_at >= HISTORY_TTL_SECONDS
+            ]
+            for rid in expired_ids:
+                del self.requests[rid]
+                changed = True
+
             if freed:
                 self._refresh_nearest_metrics()
-            if changed:  # only write to SQLite when something actually moved
+            if changed:
                 self._persist()
 
     def get_state(self) -> SystemState:

@@ -1001,12 +1001,7 @@ select:focus {
   box-shadow: 0 0 12px rgba(239, 68, 68, 0.9);
 }
 
-/* =========================================================
-   v2.1 fixes & polish
-   ========================================================= */
-
-/* FIX: the old rules only covered text/tel/password, so the email field and the
-   description textarea (the "text bar") fell back to the browser's white default. */
+/* Form controls & input styling */
 input[type="text"],
 input[type="email"],
 input[type="tel"],
@@ -1200,9 +1195,7 @@ body {
 }
 
 
-/* =========================================================
-   v2.2: map icons, details screen, hospitals, login polish
-   ========================================================= */
+/* Map icons, detail view, hospitals, and login */
 
 /* ---- Map markers (ambulance / hospital / user logos) ---- */
 .mk {
@@ -1314,4 +1307,18 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .mk.pulse { animation: none; }
   .leaflet-marker-icon.smooth, .progress-fill { transition: none; }
+}
+
+/* Smooth scrollbars and subtle transitions */
+.queue-list,
+.view-detail {
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: #25483a transparent;
+}
+.card,
+.detail-card,
+.unit-mini-card,
+.status-pill {
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
 }

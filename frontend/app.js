@@ -70,8 +70,7 @@ function formatTime(ts) {
   return new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-// Re-render a container only when its HTML really changed, and never while a dropdown inside it is open.
-// This is what stops the flicker / closing dropdowns during live tracking.
+// Keep DOM intact when HTML hasn't changed or a select menu is open
 function setHtml(el, html) {
   const active = document.activeElement;
   if (active && active.tagName === "SELECT" && el.contains(active)) return false;
@@ -148,7 +147,7 @@ function mkIcon(kind, cls = "") {
   }
   return iconCache[key];
 }
-// Only touch a marker when something changed; recreating icons every poll was a major source of flicker.
+// Reuse marker instances by key to avoid flickering on each poll
 function setMarkerIcon(marker, kind, cls) {
   const key = `${kind}|${cls}`;
   if (marker._ikey !== key) { marker.setIcon(mkIcon(kind, cls)); marker._ikey = key; }
@@ -161,11 +160,7 @@ function addTiles(map) {
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "&copy; OpenStreetMap contributors", maxZoom: 19 }).addTo(map);
 }
 
-// ---------- Real hospital data ----------
-function directionsUrl(lat, lng) {
-  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
-}
-
+// ---------- Hospital data (OpenStreetMap via backend) ----------
 function nearestHospitals(lat, lng, n = 3) {
   return state.hospitals
     .map((h) => ({ ...h, distance: haversineKm(lat, lng, h.lat, h.lng) }))
@@ -180,7 +175,7 @@ async function loadHospitals() {
     const res = await apiFetch("/api/hospitals");
     state.hospitals = res.hospitals || [];
   } catch (_) {
-    /* retried later */
+    /* retried on next poll */
   } finally {
     state.hospitalsLoading = false;
     state.hospitalsTried = true;
@@ -189,10 +184,7 @@ async function loadHospitals() {
   if (state.hospitals.length) {
     drawHospitalMarkers(state.customerHospLayer);
     drawHospitalMarkers(state.dLayers.hospitals);
-    renderNearbyHospitals();
     if (state.lastSys) renderDetail(state.lastSys);
-  } else {
-    renderNearbyHospitals();
   }
 }
 
@@ -202,31 +194,10 @@ function drawHospitalMarkers(layer) {
   state.hospitals.forEach((h) => {
     L.marker([h.lat, h.lng], { icon: mkIcon("hosp") })
       .bindPopup(
-        `<strong>${escapeHtml(h.name)}</strong>${h.phone ? `<br>${escapeHtml(h.phone)}` : ""}<br><a href="${directionsUrl(h.lat, h.lng)}" target="_blank" rel="noopener">Directions</a>`
+        `<strong>${escapeHtml(h.name)}</strong>${h.phone ? `<br>${escapeHtml(h.phone)}` : ""}`
       )
       .addTo(layer);
   });
-}
-
-function renderNearbyHospitals() {
-  const box = $("nearby-hospitals");
-  if (!box) return;
-  if (!state.hospitals.length) {
-    setHtml(box, state.hospitalsTried
-      ? `<div class="empty-state">Hospital data is unavailable right now (the server needs internet once to download it). In Nepal, dial 102 for an ambulance.</div>`
-      : `<div class="empty-state">Loading real hospital data...</div>`);
-    return;
-  }
-  const list = nearestHospitals(state.selectedLat, state.selectedLng, 4);
-  setHtml(box, list.map((h) => `
-    <div class="hospital-row">
-      <img src="assets/hospital.svg" class="hospital-ico" alt="" />
-      <div class="hospital-info">
-        <strong>${escapeHtml(h.name)}</strong>
-        <span>${h.distance.toFixed(1)} km away${h.phone ? ` &middot; ${escapeHtml(h.phone)}` : ""}${h.emergency ? " &middot; Emergency dept" : ""}</span>
-      </div>
-      <a class="btn btn-secondary btn-sm" href="${directionsUrl(h.lat, h.lng)}" target="_blank" rel="noopener">Directions</a>
-    </div>`).join(""));
 }
 
 // ---------- Role routing ----------
@@ -244,7 +215,6 @@ function setRole(role) {
     initCustomerMap();
     if (session && session.name && !$("patient-name").value) $("patient-name").value = session.name;
     if (state.activeRequestId) showCustomerTracker();
-    renderNearbyHospitals();
   } else if (role === "dispatcher") {
     initDispatcherMap();
     setDispatcherView(state.dView);
@@ -310,7 +280,6 @@ function setCustomerCoords(lat, lng, label) {
   $("coord-readout").textContent = `${state.selectedLat}, ${state.selectedLng} (${label})`;
   if (state.customerPin) state.customerPin.setLatLng([state.selectedLat, state.selectedLng]);
   if (state.customerMap) state.customerMap.panTo([state.selectedLat, state.selectedLng]);
-  renderNearbyHospitals();
 }
 
 function requestBrowserLocation(showErrors = true) {
@@ -429,9 +398,14 @@ function renderCustomerTracker(req, ambulances) {
   badge.textContent = req.status.replace("_", " ");
   badge.className = `status-pill status-${req.status}`;
 
+  const toHospital = req.status === "EN_ROUTE" && req.transport_phase === "TO_HOSPITAL";
   $("track-eta-display").textContent =
-    req.status === "EN_ROUTE" ? formatSeconds(req.eta_seconds)
-    : req.status === "ARRIVED" ? "Arrived on scene"
+    req.status === "EN_ROUTE"
+      ? (toHospital
+          ? `To ${req.destination_hospital || "hospital"}: ${formatSeconds(req.eta_seconds)}`
+          : formatSeconds(req.eta_seconds))
+    : req.status === "ARRIVED"
+      ? (req.destination_hospital ? `Arrived at ${req.destination_hospital}` : "Arrived at hospital")
     : req.status === "FALSE_ALARM" ? "Dismissed by dispatch"
     : "Awaiting unit assignment";
   $("track-unit-display").textContent = req.assigned_callsign || "Matching nearest unit...";
@@ -449,7 +423,7 @@ function renderCustomerTracker(req, ambulances) {
   updateLiveMap(req, ambulances);
 }
 
-// Markers are created once and then moved: no clearing/redrawing and no re-fitting the map on every poll.
+// Update patient/ambulance markers and route in place between polls
 function updateLiveMap(req, ambulances) {
   const map = state.customerLiveMap;
   if (!map) return;
@@ -463,9 +437,11 @@ function updateLiveMap(req, ambulances) {
   const tracking = amb && (req.status === "EN_ROUTE" || req.status === "ARRIVED");
   if (tracking) {
     const onThisJob = amb.assigned_request_id === req.id;
-    const ambLat = onThisJob ? amb.current_lat : req.lat;
-    const ambLng = onThisJob ? amb.current_lng : req.lng;
-    const path = amb.route && amb.route.length > 1 ? amb.route : [[ambLat, ambLng], [req.lat, req.lng]];
+    const targetLat = onThisJob && amb.destination_lat != null ? amb.destination_lat : req.lat;
+    const targetLng = onThisJob && amb.destination_lng != null ? amb.destination_lng : req.lng;
+    const ambLat = onThisJob ? amb.current_lat : targetLat;
+    const ambLng = onThisJob ? amb.current_lng : targetLng;
+    const path = amb.route && amb.route.length > 1 ? amb.route : [[ambLat, ambLng], [targetLat, targetLng]];
     const cls = req.status === "ARRIVED" ? "arrived" : "en-route";
     if (!live.amb) {
       live.amb = L.marker([ambLat, ambLng], { icon: mkIcon("amb", cls), zIndexOffset: 900 }).addTo(map);
@@ -474,17 +450,18 @@ function updateLiveMap(req, ambulances) {
       setMarkerIcon(live.amb, "amb", cls);
     }
     if (req.status === "EN_ROUTE") {
+      const rk = `${amb.phase || "TO_PATIENT"}:${amb.route ? amb.route.length : 0}`;
       if (!live.route) live.route = L.polyline(path, { color: "#3b82f6", weight: 5, opacity: 0.85, dashArray: amb.route ? null : "6, 6" }).addTo(map);
-      else if (!amb.route || live.route._rk !== amb.route.length) live.route.setLatLngs(path);
-      live.route._rk = amb.route ? amb.route.length : 0;
+      else if (!amb.route || live.route._rk !== rk) live.route.setLatLngs(path);
+      live.route._rk = rk;
     } else if (live.route) {
       map.removeLayer(live.route);
       live.route = null;
     }
-    const fitKey = `${req.id}:${amb.id}`;
+    const fitKey = `${req.id}:${amb.id}:${req.transport_phase || ""}`;
     if (live.fitKey !== fitKey) {
       live.fitKey = fitKey;
-      map.fitBounds(L.latLngBounds([[ambLat, ambLng], [req.lat, req.lng]]), { padding: [40, 40] });
+      map.fitBounds(L.latLngBounds([[ambLat, ambLng], [targetLat, targetLng]]), { padding: [40, 40] });
     }
   } else {
     [live.amb, live.route].forEach((l) => l && map.removeLayer(l));
@@ -752,7 +729,7 @@ function renderDetail(sys) {
 
   const unitCard = req.assigned_callsign
     ? `<div class="big-line">${escapeHtml(req.assigned_callsign)}</div>
-       <div class="muted">${escapeHtml(amb ? amb.station_name : "")}</div>
+       <div class="muted">${escapeHtml(req.transport_phase === "TO_HOSPITAL" ? `Transporting to ${req.destination_hospital || "hospital"}` : req.transport_phase === "AT_HOSPITAL" ? `Dropped off at ${req.destination_hospital || "hospital"}` : amb ? amb.station_name : "")}</div>
        <div class="eta-row"><span class="eta-big" data-eta="${req.id}"></span>${amb && amb.route_km ? `<span class="muted">${amb.route_km} km ${amb.route ? "by road" : "straight line"}</span>` : ""}</div>
        <div class="progress"><div class="progress-fill" data-progress="${req.id}"></div></div>`
     : req.nearest_unit_callsign && !resolved
@@ -760,7 +737,7 @@ function renderDetail(sys) {
     : `<div class="muted">${resolved ? "No unit assigned." : "No free units right now."}</div>`;
 
   const hospitalCard = hospitals.length
-    ? hospitals.map((h) => `<div class="hospital-row compact"><img src="assets/hospital.svg" class="hospital-ico" alt="" /><div class="hospital-info"><strong>${escapeHtml(h.name)}</strong><span>${h.distance.toFixed(1)} km${h.phone ? ` &middot; ${escapeHtml(h.phone)}` : ""}</span></div><a class="btn btn-ghost btn-sm" href="${directionsUrl(h.lat, h.lng)}" target="_blank" rel="noopener">Route</a></div>`).join("")
+    ? hospitals.map((h) => `<div class="hospital-row compact"><img src="assets/hospital.svg" class="hospital-ico" alt="" /><div class="hospital-info"><strong>${escapeHtml(h.name)}</strong><span>${h.distance.toFixed(1)} km${h.phone ? ` &middot; ${escapeHtml(h.phone)}` : ""}</span></div></div>`).join("")
     : `<div class="muted">${state.hospitalsTried ? "Hospital data unavailable." : "Loading real hospital data..."}</div>`;
 
   const actions = resolved ? "" : `
@@ -805,7 +782,6 @@ function renderDetail(sys) {
         <h4>Location</h4>
         <div class="big-line">${escapeHtml(req.location_label)}</div>
         <div class="muted">${req.lat}, ${req.lng}</div>
-        <a href="https://www.google.com/maps?q=${req.lat},${req.lng}" target="_blank" rel="noopener">Open in Google Maps</a>
       </div>
       <div class="detail-card wide">
         <h4>Caller report</h4>
@@ -856,13 +832,19 @@ function renderFleet(sys) {
     </div>`).join(""));
 }
 
-// Fast-changing numbers are patched in place, so the surrounding HTML never has to be rebuilt each tick.
+// Patch fast-changing ETA and progress values in place without rebuilding surrounding DOM
 function updateDynamic(sys) {
   const reqById = Object.fromEntries(sys.requests.map((r) => [r.id, r]));
   const ambById = Object.fromEntries(sys.ambulances.map((a) => [a.id, a]));
   document.querySelectorAll("[data-eta]").forEach((el) => {
     const r = reqById[el.dataset.eta];
-    const txt = r ? (r.status === "ARRIVED" ? "Arrived" : formatSeconds(r.eta_seconds)) : "";
+    const txt = r
+      ? (r.status === "ARRIVED"
+          ? (r.destination_hospital ? `At ${r.destination_hospital}` : "Arrived")
+          : r.transport_phase === "TO_HOSPITAL"
+          ? `To ${r.destination_hospital || "hospital"} (${formatSeconds(r.eta_seconds)})`
+          : formatSeconds(r.eta_seconds))
+      : "";
     if (el.textContent !== txt) el.textContent = txt;
   });
   document.querySelectorAll("[data-progress]").forEach((el) => {
@@ -925,13 +907,16 @@ function updateDispatcherMap(sys) {
       return;
     }
     const road = amb.route && amb.route.length > 1;
-    const path = road ? amb.route : [[amb.current_lat, amb.current_lng], [req.lat, req.lng]];
-    const key = road ? `r${amb.route.length}:${amb.route[0][0]}` : "s";
+    const destLat = amb.destination_lat != null ? amb.destination_lat : req.lat;
+    const destLng = amb.destination_lng != null ? amb.destination_lng : req.lng;
+    const path = road ? amb.route : [[amb.current_lat, amb.current_lng], [destLat, destLng]];
+    const key = road ? `r${amb.route.length}:${amb.route[0][0]}:${amb.phase || ""}` : `s:${amb.phase || ""}`;
     if (!line) {
-      line = L1.routes[req.id] = L.polyline(path, { color: "#ef4444", weight: 5, opacity: 0.85, dashArray: road ? null : "8, 6" }).addTo(map);
+      line = L1.routes[req.id] = L.polyline(path, { color: amb.phase === "TO_HOSPITAL" ? "#10b981" : "#ef4444", weight: 5, opacity: 0.85, dashArray: road ? null : "8, 6" }).addTo(map);
       line._rk = key;
     } else if (!road || line._rk !== key) {
       line.setLatLngs(path);
+      line.setStyle({ color: amb.phase === "TO_HOSPITAL" ? "#10b981" : "#ef4444", dashArray: road ? null : "8, 6" });
       line._rk = key;
     }
   });
@@ -948,8 +933,11 @@ function renderSystemState(sys) {
   if (state.role === "dispatcher") {
     renderDispatcherView(sys);
   } else if (state.role === "customer") {
-    const free = sys.ambulances.filter((a) => a.status === "AVAILABLE").length;
-    $("fleet-badge").textContent = `${free}/${sys.ambulances.length} demo units free`;
+    const badge = $("fleet-badge");
+    if (badge) {
+      const free = sys.ambulances.filter((a) => a.status === "AVAILABLE").length;
+      badge.textContent = `${free}/${sys.ambulances.length} demo units free`;
+    }
   }
 }
 
