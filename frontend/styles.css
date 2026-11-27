@@ -29,6 +29,82 @@
   --ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
+:root[data-theme="dark"] {
+  --bg-main: #0b1120;
+  --bg-card: #111827;
+  --bg-elevated: #1e293b;
+  --bg-hover: #273549;
+  --border: #334155;
+  --border-strong: #475569;
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-soft: rgba(59, 130, 246, 0.16);
+
+  --red: #ef4444;
+  --red-hover: #dc2626;
+  --red-soft: rgba(239, 68, 68, 0.16);
+  --amber: #f59e0b;
+  --amber-soft: rgba(245, 158, 11, 0.16);
+  --green: #22c55e;
+  --green-deep: #16a34a;
+  --green-soft: #4ade80;
+  --green-bg: rgba(34, 197, 94, 0.16);
+}
+
+:root[data-theme="dark"] .user-chip.chip-dispatcher,
+:root[data-theme="dark"] .step-item.active,
+:root[data-theme="dark"] .status-VERIFIED,
+:root[data-theme="dark"] .status-EN_ROUTE {
+  border-color: rgba(59, 130, 246, 0.45);
+  color: #93c5fd;
+}
+
+:root[data-theme="dark"] .conn-online,
+:root[data-theme="dark"] .sev-tag-STANDARD,
+:root[data-theme="dark"] .status-ARRIVED {
+  border-color: rgba(34, 197, 94, 0.45);
+  color: #86efac;
+}
+
+:root[data-theme="dark"] .conn-offline,
+:root[data-theme="dark"] .emergency-callout,
+:root[data-theme="dark"] .error-banner,
+:root[data-theme="dark"] .sev-tag-CRITICAL,
+:root[data-theme="dark"] .dup-tag {
+  border-color: rgba(239, 68, 68, 0.45);
+}
+
+:root[data-theme="dark"] .error-banner,
+:root[data-theme="dark"] .conn-offline,
+:root[data-theme="dark"] .sev-tag-CRITICAL,
+:root[data-theme="dark"] .dup-tag {
+  color: #fca5a5;
+}
+
+:root[data-theme="dark"] .conn-checking,
+:root[data-theme="dark"] .offline-banner,
+:root[data-theme="dark"] .sev-tag-URGENT,
+:root[data-theme="dark"] .status-PENDING {
+  border-color: rgba(245, 158, 11, 0.45);
+  color: #fcd34d;
+}
+
+:root[data-theme="dark"] .offline-banner code {
+  background: var(--bg-card);
+  border-color: rgba(245, 158, 11, 0.45);
+  color: #fde68a;
+}
+
+:root[data-theme="dark"] .inc-open,
+:root[data-theme="dark"] .phone-link,
+:root[data-theme="dark"] .pw-toggle,
+:root[data-theme="dark"] .preset-chip:hover {
+  color: #93c5fd;
+}
+
 *,
 *::before,
 *::after {

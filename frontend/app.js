@@ -1179,11 +1179,30 @@ function applyLanguage(lang) {
   if (btn) btn.textContent = state.lang === "ne" ? "EN" : "नेपाली";
 }
 
+function applyTheme(theme) {
+  const dark = theme === "dark";
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  localStorage.setItem("rapidaid_theme", dark ? "dark" : "light");
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", dark ? "#0b1120" : "#f4f6f8");
+  const btn = $("theme-btn");
+  if (btn) {
+    btn.textContent = dark ? "Light" : "Dark";
+    btn.setAttribute("aria-pressed", String(dark));
+  }
+}
+
 // ---------- Boot ----------
 window.addEventListener("DOMContentLoaded", () => {
   const goHome = () => (getSession() ? routeAfterLogin() : setRole("auth"));
   $("nav-home-btn").addEventListener("click", goHome);
   $("switch-role-btn").addEventListener("click", () => { clearSession(); setRole("auth"); });
+
+  applyTheme(localStorage.getItem("rapidaid_theme") || "light");
+  $("theme-btn").addEventListener("click", () => {
+    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    applyTheme(next);
+  });
 
   applyLanguage(localStorage.getItem("rapidaid_lang") || "en");
   $("lang-btn").addEventListener("click", () => applyLanguage(state.lang === "ne" ? "en" : "ne"));
