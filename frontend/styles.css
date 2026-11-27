@@ -44,6 +44,7 @@ body {
   line-height: 1.5;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M9 3h6v6h6v6h-6v6H9v-6H3V9h6z' fill='%23c81e1e' stroke='%23ffffff' stroke-width='1.75' stroke-linejoin='round'/%3E%3C/svg%3E") 12 12, crosshair;
 }
 
 h1,
@@ -166,6 +167,9 @@ h4,
 }
 
 .conn-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   font-family: var(--font-mono);
   font-size: 0.74rem;
   font-weight: 600;
@@ -173,6 +177,15 @@ h4,
   border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--bg-elevated);
+}
+
+.conn-pill::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
 }
 
 .conn-online {
@@ -491,6 +504,38 @@ h4,
   color: var(--text-main);
 }
 
+.preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.preset-chip {
+  padding: 0.3rem 0.62rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 120ms var(--ease), border-color 120ms var(--ease);
+}
+
+.preset-chip:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.preset-chip:focus-visible,
+.filter-pill:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 input[type="text"],
 input[type="email"],
 input[type="tel"],
@@ -507,7 +552,12 @@ select {
   color: var(--text-main);
   font-family: var(--font-sans);
   font-size: 0.92rem;
+  cursor: text;
   transition: border-color 120ms var(--ease);
+}
+
+select {
+  cursor: pointer;
 }
 
 textarea {
@@ -803,6 +853,40 @@ select option {
   border-radius: 4px;
   font-size: 0.78rem;
   font-weight: 600;
+}
+
+.queue-filters {
+  display: flex;
+  gap: 0.35rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  overflow-x: auto;
+}
+
+.filter-pill {
+  padding: 0.25rem 0.6rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 120ms var(--ease), color 120ms var(--ease), border-color 120ms var(--ease);
+}
+
+.filter-pill:hover {
+  color: var(--text-main);
+  border-color: var(--border-strong);
+}
+
+.filter-pill.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
 }
 
 .queue-list {
@@ -1188,6 +1272,13 @@ select option {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  cursor: pointer;
+  transition: background-color 120ms var(--ease), border-color 120ms var(--ease);
+}
+
+.unit-mini-card:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
 }
 
 .unit-top {

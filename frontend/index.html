@@ -39,7 +39,8 @@
     </div>
 
     <div class="topbar-actions">
-      <span id="connection-pill" class="conn-pill conn-checking">Connecting...</span>
+      <span id="connection-pill" class="conn-pill conn-checking" aria-live="polite">Connecting...</span>
+      <button id="lang-btn" class="btn btn-ghost btn-sm" type="button" title="Switch language">नेपाली</button>
       <button id="sound-btn" class="btn btn-ghost btn-sm" type="button" title="Toggle sound effects">Sound on</button>
       <span id="user-chip" class="user-chip hidden"></span>
       <button id="switch-role-btn" class="btn btn-ghost btn-sm hidden">Sign out</button>
@@ -50,15 +51,15 @@
   <main id="screen-auth" class="screen container">
     <section class="auth-shell">
       <div class="auth-art">
-        <span class="eyebrow">ITAHARI &amp; KOSHI CORRIDOR</span>
-        <h1>Emergency ambulance dispatch.</h1>
-        <p class="hero-desc">Pin the incident location, send patient details to the central desk, and track the assigned unit to the hospital.</p>
+        <span class="eyebrow" data-i18n="heroEyebrow">ITAHARI &amp; KOSHI CORRIDOR</span>
+        <h1 data-i18n="heroTitle">Emergency ambulance dispatch.</h1>
+        <p class="hero-desc" data-i18n="heroDesc">Pin the incident location, send patient details to the central desk, and track the assigned unit to the hospital.</p>
         <div class="emergency-callout">
           <div class="emergency-callout-copy">
-            <strong>Need an ambulance right now?</strong>
-            <span>Skip sign-in and open the emergency pin form immediately.</span>
+            <strong data-i18n="guestCalloutTitle">Need an ambulance right now?</strong>
+            <span data-i18n="guestCalloutSub">Skip sign-in and open the emergency pin form immediately.</span>
           </div>
-          <button type="button" id="btn-guest" class="btn btn-danger btn-lg full-width">
+          <button type="button" id="btn-guest" class="btn btn-danger btn-lg full-width" data-i18n="guestBtn">
             Request Ambulance Without Account
           </button>
         </div>
@@ -117,7 +118,7 @@
       <div class="eta-box">
         <div class="eta-main">
           <span class="eta-label">ESTIMATED ARRIVAL</span>
-          <div id="track-eta-display" class="eta-value">Awaiting Dispatch</div>
+          <div id="track-eta-display" class="eta-value" aria-live="polite">Awaiting Dispatch</div>
         </div>
         <div class="eta-unit">
           <span class="eta-label">ASSIGNED UNIT</span>
@@ -126,10 +127,10 @@
       </div>
 
       <div class="progress-steps">
-        <div class="step-item" data-step="PENDING">Received</div>
-        <div class="step-item" data-step="VERIFIED">Verified</div>
-        <div class="step-item" data-step="EN_ROUTE">En Route</div>
-        <div class="step-item" data-step="ARRIVED">Arrived</div>
+        <div class="step-item" data-step="PENDING" data-i18n="stepReceived">Received</div>
+        <div class="step-item" data-step="VERIFIED" data-i18n="stepVerified">Verified</div>
+        <div class="step-item" data-step="EN_ROUTE" data-i18n="stepEnRoute">En Route</div>
+        <div class="step-item" data-step="ARRIVED" data-i18n="stepArrived">Arrived</div>
       </div>
 
       <div class="tracker-meta">
@@ -143,14 +144,14 @@
         <div id="customer-live-map" class="map-box-sm"></div>
       </div>
 
-      <button id="btn-new-request" class="btn btn-secondary full-width">Submit Another Request</button>
+      <button id="btn-new-request" class="btn btn-secondary full-width" data-i18n="newRequestBtn">Submit Another Request</button>
     </section>
 
     <section id="customer-form-card" class="card">
       <div class="card-header-row">
         <div>
-          <span class="eyebrow">EMERGENCY REQUEST</span>
-          <h2>Request an Ambulance</h2>
+          <span class="eyebrow" data-i18n="formEyebrow">EMERGENCY REQUEST</span>
+          <h2 data-i18n="formTitle">Request an Ambulance</h2>
         </div>
         <label class="toggle-chip" title="Bypass the 15-second repeat-request cooldown during testing">
           <input type="checkbox" id="demo-bypass-cooldown" />
@@ -161,39 +162,46 @@
       <form id="emergency-form" novalidate>
         <div class="form-grid-2">
           <div class="form-group">
-            <label for="patient-name">Patient or Caller Name *</label>
+            <label for="patient-name" data-i18n="lblPatientName">Patient or Caller Name *</label>
             <input type="text" id="patient-name" placeholder="Aarav Sharma" required />
           </div>
           <div class="form-group">
-            <label for="patient-phone">Callback Phone Number *</label>
+            <label for="patient-phone" data-i18n="lblPatientPhone">Callback Phone Number *</label>
             <input type="tel" id="patient-phone" placeholder="9842012345" required />
           </div>
         </div>
 
         <div class="form-group">
-          <label for="injury-description">Injury or Medical Condition *</label>
+          <label for="injury-description" data-i18n="lblInjury">Injury or Medical Condition *</label>
+          <div id="injury-presets" class="preset-row" role="group" aria-label="Quick symptom presets">
+            <button type="button" class="preset-chip" data-preset="Road traffic accident / trauma" data-i18n="presetAccident">Road Accident</button>
+            <button type="button" class="preset-chip" data-preset="Severe chest pain / cardiac" data-i18n="presetCardiac">Chest Pain</button>
+            <button type="button" class="preset-chip" data-preset="Unconscious / difficulty breathing" data-i18n="presetUnconscious">Unconscious</button>
+            <button type="button" class="preset-chip" data-preset="Maternity / active labor" data-i18n="presetMaternity">Maternity</button>
+            <button type="button" class="preset-chip" data-preset="Heavy bleeding / deep wound" data-i18n="presetBleeding">Heavy Bleeding</button>
+          </div>
           <textarea id="injury-description" rows="4" maxlength="1200" placeholder="Describe symptoms, injuries, consciousness, and access details." required></textarea>
         </div>
 
         <div class="form-group">
-          <label for="evidence-photo">Scene Photo (Optional)</label>
+          <label for="evidence-photo" data-i18n="lblPhoto">Scene Photo (Optional)</label>
           <input type="file" id="evidence-photo" accept="image/*" />
           <small class="hint-text">Optional photo up to 5 MB. Avoid uploading unrelated or sensitive files.</small>
         </div>
 
         <div class="form-group">
           <div class="location-header">
-            <label>Incident Location *</label>
+            <label data-i18n="lblLocation">Incident Location *</label>
             <span id="coord-readout" class="coord-badge">Choose location on map</span>
           </div>
-          <button type="button" id="btn-use-location" class="btn btn-secondary btn-sm">Use current GPS location</button>
+          <button type="button" id="btn-use-location" class="btn btn-secondary btn-sm" data-i18n="btnUseGps">Use current GPS location</button>
           <div id="customer-map" class="map-box"></div>
-          <small class="hint-text">Use GPS or click/drag the pin on the map to set exact coordinates.</small>
+          <small class="hint-text" data-i18n="hintLocation">Use GPS or click/drag the pin on the map to set exact coordinates.</small>
         </div>
 
         <div id="customer-error-box" class="error-banner hidden"></div>
 
-        <button type="submit" id="btn-submit-emergency" class="btn btn-danger btn-lg full-width">
+        <button type="submit" id="btn-submit-emergency" class="btn btn-danger btn-lg full-width" data-i18n="btnSubmitEmergency">
           DISPATCH EMERGENCY AMBULANCE
         </button>
       </form>
@@ -232,6 +240,12 @@
           <div class="panel-header">
             <h3>Incident Queue</h3>
             <span id="queue-count-badge" class="count-badge">0</span>
+          </div>
+          <div id="queue-filters" class="queue-filters" role="group" aria-label="Filter incidents">
+            <button type="button" class="filter-pill active" data-filter="ALL">All</button>
+            <button type="button" class="filter-pill" data-filter="PENDING">Pending</button>
+            <button type="button" class="filter-pill" data-filter="CRITICAL">Critical</button>
+            <button type="button" class="filter-pill" data-filter="EN_ROUTE">En Route</button>
           </div>
           <div id="incident-queue-list" class="queue-list">
             <div class="empty-state">No active incidents in queue.</div>

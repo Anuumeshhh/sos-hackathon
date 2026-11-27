@@ -12,7 +12,7 @@ const state = {
   selectedLat: ITAHARI_CENTER[0],
   selectedLng: ITAHARI_CENTER[1],
   selectedLocationLabel: "Selected location",
-  activeRequestId: localStorage.getItem("active_request_id") || null,
+  activeRequestId: null,
   pollTimer: null,
   // customer maps
   customerMap: null,
@@ -23,6 +23,7 @@ const state = {
   // dispatcher
   dispatcherMap: null,
   dView: "map",
+  queueFilter: "ALL",
   selectedIncidentId: null,
   photoShownFor: null,
   evidenceCache: {},
@@ -197,7 +198,17 @@ function getSession() {
 function saveSession(res) {
   sessionStorage.setItem("rapidaid_session", JSON.stringify({ token: res.access_token, role: res.role, name: res.name, email: res.email, picture: res.picture || "" }));
 }
-function clearSession() { sessionStorage.removeItem("rapidaid_session"); }
+function clearSession() {
+  sessionStorage.removeItem("rapidaid_session");
+  state.activeRequestId = null;
+  resetLiveMap();
+  const form = $("emergency-form");
+  if (form) form.reset();
+}
+function activeRequestKey() {
+  const s = getSession();
+  return s && s.email ? `active_request_id:${s.email.toLowerCase()}` : "active_request_id:guest";
+}
 
 async function apiFetch(path, options = {}) {
   const session = getSession();
@@ -314,7 +325,14 @@ function setRole(role) {
   if (role === "customer") {
     initCustomerMap();
     if (session && session.name && !$("patient-name").value) $("patient-name").value = session.name;
-    if (state.activeRequestId) showCustomerTracker();
+    state.activeRequestId = localStorage.getItem(activeRequestKey()) || null;
+    if (state.activeRequestId) {
+      showCustomerTracker();
+    } else {
+      $("customer-tracker-card").classList.add("hidden");
+      $("customer-form-card").classList.remove("hidden");
+      resetLiveMap();
+    }
   } else if (role === "dispatcher") {
     initDispatcherMap();
     setDispatcherView(state.dView);
@@ -403,6 +421,20 @@ function showCustomerError(message) {
 
 function setupCustomerHandlers() {
   $("btn-use-location").addEventListener("click", () => requestBrowserLocation(true));
+  const presets = $("injury-presets");
+  if (presets) {
+    presets.addEventListener("click", (e) => {
+      const btn = e.target.closest(".preset-chip");
+      if (!btn) return;
+      const text = btn.dataset.preset;
+      const ta = $("injury-description");
+      const cur = ta.value.trim();
+      if (!cur.toLowerCase().includes(text.toLowerCase())) {
+        ta.value = cur ? `${cur}, ${text}` : text;
+      }
+      ta.focus();
+    });
+  }
   $("emergency-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     $("customer-error-box").classList.add("hidden");
@@ -425,7 +457,7 @@ function setupCustomerHandlers() {
 
 async function submitEmergencyPayload() {
   const submitBtn = $("btn-submit-emergency");
-  const idle = "DISPATCH EMERGENCY AMBULANCE";
+  const idle = submitBtn.textContent;
   submitBtn.disabled = true;
   submitBtn.textContent = "Sending Emergency Alert...";
 
@@ -456,7 +488,7 @@ async function submitEmergencyPayload() {
   try {
     const created = await apiFetch("/api/requests", { method: "POST", body: JSON.stringify(payload) });
     state.activeRequestId = created.id;
-    localStorage.setItem("active_request_id", created.id);
+    localStorage.setItem(activeRequestKey(), created.id);
     Sfx.success();
     showCustomerTracker();
     renderCustomerTracker(created, []);
@@ -470,7 +502,7 @@ async function submitEmergencyPayload() {
 
 function resetCustomerTicket() {
   state.activeRequestId = null;
-  localStorage.removeItem("active_request_id");
+  localStorage.removeItem(activeRequestKey());
   $("customer-tracker-card").classList.add("hidden");
   $("customer-form-card").classList.remove("hidden");
   resetLiveMap();
@@ -690,6 +722,16 @@ async function handleAssign(requestId, ambulanceId = null) {
 function setupDispatcherHandlers() {
   $("btn-view-map").addEventListener("click", () => setDispatcherView("map"));
   $("btn-view-detail").addEventListener("click", () => setDispatcherView("detail"));
+  const filters = $("queue-filters");
+  if (filters) {
+    filters.addEventListener("click", (e) => {
+      const pill = e.target.closest(".filter-pill");
+      if (!pill) return;
+      state.queueFilter = pill.dataset.filter;
+      filters.querySelectorAll(".filter-pill").forEach((b) => b.classList.toggle("active", b === pill));
+      if (state.lastSys) renderQueue(state.lastSys);
+    });
+  }
   $("toggle-hospitals").addEventListener("change", (e) => {
     state.showHospitals = e.target.checked;
     const layer = state.dLayers.hospitals;
@@ -747,11 +789,20 @@ function renderDispatcherView(sys) {
 
 function renderQueue(sys) {
   const listEl = $("incident-queue-list");
-  if (!sys.requests.length) {
-    setHtml(listEl, `<div class="empty-state">No active emergency requests. Waiting for incoming alerts...</div>`);
+  const filtered = sys.requests.filter((r) => {
+    if (state.queueFilter === "PENDING") return r.status === "PENDING";
+    if (state.queueFilter === "CRITICAL") return r.severity === "CRITICAL" && !isResolved(r);
+    if (state.queueFilter === "EN_ROUTE") return r.status === "EN_ROUTE";
+    return true;
+  });
+  if (!filtered.length) {
+    const emptyMsg = sys.requests.length
+      ? "No incidents match this filter."
+      : "No active emergency requests. Waiting for incoming alerts...";
+    setHtml(listEl, `<div class="empty-state">${emptyMsg}</div>`);
     return;
   }
-  setHtml(listEl, sys.requests.map((req) => {
+  setHtml(listEl, filtered.map((req) => {
     const ambLine = req.assigned_callsign
       ? `<div class="inc-sub"><img src="assets/ambulance.svg" class="mini-ico" alt="" /> ${escapeHtml(req.assigned_callsign)} &middot; <span data-eta="${req.id}"></span></div>`
       : !isResolved(req) && req.nearest_unit_callsign
@@ -888,9 +939,19 @@ function fillPhoto(req) {
     .catch(() => { slot.innerHTML = `<div class="detail-card wide"><div class="muted">Couldn't load the photo.</div></div>`; });
 }
 
+function focusAmbulance(ambId) {
+  const amb = state.lastSys && state.lastSys.ambulances.find((a) => a.id === ambId);
+  if (!amb || !state.dispatcherMap) return;
+  if (state.dView !== "map") setDispatcherView("map");
+  state.dispatcherMap.setView([amb.current_lat, amb.current_lng], 15, { animate: true });
+  const marker = state.dLayers.ambulances[ambId];
+  if (marker) marker.openTooltip();
+}
+
 function renderFleet(sys) {
   setHtml($("fleet-strip"), sys.ambulances.map((amb) => `
-    <div class="unit-mini-card">
+    <div class="unit-mini-card" role="button" tabindex="0" title="Focus ${escapeHtml(amb.callsign)} on map"
+         onclick="focusAmbulance('${amb.id}')" onkeydown="if(event.key==='Enter')focusAmbulance('${amb.id}')">
       <div class="unit-top"><img src="assets/ambulance.svg" class="mini-ico" alt="" /><strong>${escapeHtml(amb.callsign)}</strong></div>
       <span class="status-pill status-${amb.status === "AVAILABLE" ? "ARRIVED" : amb.status}">${amb.status === "AVAILABLE" && amb.phase === "RETURNING" ? "RETURNING" : amb.status}</span>
       <div class="inc-sub">${escapeHtml(amb.station_name)}</div>
@@ -1047,11 +1108,85 @@ async function pollSystemState() {
   }
 }
 
+const I18N = {
+  en: {
+    heroEyebrow: "ITAHARI & KOSHI CORRIDOR",
+    heroTitle: "Emergency ambulance dispatch.",
+    heroDesc: "Pin the incident location, send patient details to the central desk, and track the assigned unit to the hospital.",
+    guestCalloutTitle: "Need an ambulance right now?",
+    guestCalloutSub: "Skip sign-in and open the emergency pin form immediately.",
+    guestBtn: "Request Ambulance Without Account",
+    stepReceived: "Received",
+    stepVerified: "Verified",
+    stepEnRoute: "En Route",
+    stepArrived: "Arrived",
+    newRequestBtn: "Submit Another Request",
+    formEyebrow: "EMERGENCY REQUEST",
+    formTitle: "Request an Ambulance",
+    lblPatientName: "Patient or Caller Name *",
+    lblPatientPhone: "Callback Phone Number *",
+    lblInjury: "Injury or Medical Condition *",
+    presetAccident: "Road Accident",
+    presetCardiac: "Chest Pain",
+    presetUnconscious: "Unconscious",
+    presetMaternity: "Maternity",
+    presetBleeding: "Heavy Bleeding",
+    lblPhoto: "Scene Photo (Optional)",
+    lblLocation: "Incident Location *",
+    btnUseGps: "Use current GPS location",
+    hintLocation: "Use GPS or click/drag the pin on the map to set exact coordinates.",
+    btnSubmitEmergency: "DISPATCH EMERGENCY AMBULANCE",
+  },
+  ne: {
+    heroEyebrow: "इटहरी र कोशी करिडोर",
+    heroTitle: "आकस्मिक एम्बुलेन्स डिस्प्याच।",
+    heroDesc: "घटनाको स्थान पिन गर्नुहोस्, बिरामीको विवरण पठाउनुहोस्, र अस्पताल पुग्दासम्म एम्बुलेन्स ट्र्याक गर्नुहोस्।",
+    guestCalloutTitle: "तुरुन्तै एम्बुलेन्स चाहियो?",
+    guestCalloutSub: "साइन-इन नगरी सिधै आकस्मिक फारम खोल्नुहोस्।",
+    guestBtn: "खाता बिना एम्बुलेन्स अनुरोध गर्नुहोस्",
+    stepReceived: "प्राप्त भयो",
+    stepVerified: "प्रमाणित",
+    stepEnRoute: "बाटोमा",
+    stepArrived: "पुग्यो",
+    newRequestBtn: "अर्को अनुरोध पठाउनुहोस्",
+    formEyebrow: "आकस्मिक अनुरोध",
+    formTitle: "एम्बुलेन्स बोलाउनुहोस्",
+    lblPatientName: "बिरामी वा फोन गर्नेको नाम *",
+    lblPatientPhone: "सम्पर्क फोन नम्बर *",
+    lblInjury: "चोटपटक वा स्वास्थ्य अवस्था *",
+    presetAccident: "सडक दुर्घटना",
+    presetCardiac: "छाती दुख्ने",
+    presetUnconscious: "बेहोस अवस्था",
+    presetMaternity: "प्रसूति / सुत्केरी",
+    presetBleeding: "अत्यधिक रक्तस्राव",
+    lblPhoto: "घटनास्थलको फोटो (ऐच्छिक)",
+    lblLocation: "घटनाको स्थान *",
+    btnUseGps: "हालको GPS स्थान प्रयोग गर्नुहोस्",
+    hintLocation: "GPS प्रयोग गर्नुहोस् वा नक्सामा पिन तानेर सही स्थान छान्नुहोस्।",
+    btnSubmitEmergency: "आकस्मिक एम्बुलेन्स पठाउनुहोस्",
+  },
+};
+
+function applyLanguage(lang) {
+  const dict = I18N[lang] || I18N.en;
+  state.lang = I18N[lang] ? lang : "en";
+  localStorage.setItem("rapidaid_lang", state.lang);
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    const val = dict[el.dataset.i18n];
+    if (val) el.textContent = val;
+  });
+  const btn = $("lang-btn");
+  if (btn) btn.textContent = state.lang === "ne" ? "EN" : "नेपाली";
+}
+
 // ---------- Boot ----------
 window.addEventListener("DOMContentLoaded", () => {
   const goHome = () => (getSession() ? routeAfterLogin() : setRole("auth"));
   $("nav-home-btn").addEventListener("click", goHome);
   $("switch-role-btn").addEventListener("click", () => { clearSession(); setRole("auth"); });
+
+  applyLanguage(localStorage.getItem("rapidaid_lang") || "en");
+  $("lang-btn").addEventListener("click", () => applyLanguage(state.lang === "ne" ? "en" : "ne"));
 
   setupAuthHandlers();
   setupCustomerHandlers();
@@ -1067,6 +1202,7 @@ window.addEventListener("DOMContentLoaded", () => {
   soundBtn.addEventListener("click", () => { Sfx.setMuted(!Sfx.muted); paintSound(); if (!Sfx.muted) Sfx.ecg(); });
   setupDispatcherHandlers();
 
+  localStorage.removeItem("active_request_id");
   if (getSession()) routeAfterLogin();
   else setRole("auth");
 
