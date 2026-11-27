@@ -3,20 +3,24 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RapidAid Itahari — Emergency Ambulance Dispatch</title>
-  <!-- Leaflet CSS via CDN -->
+  <title>RapidAid Itahari — Ambulance Dispatch</title>
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
     crossorigin=""
   />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
   <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
-  <meta name="theme-color" content="#06110d" />
-  <link rel="stylesheet" href="styles.css?v=3" />
+  <meta name="theme-color" content="#f4f6f8" />
+  <link rel="stylesheet" href="styles.css?v=5" />
 </head>
 <body>
-  <!-- Top Navigation Bar -->
   <header class="topbar">
     <div class="brand" id="nav-home-btn" title="Home">
       <div class="logo-wrap">
@@ -30,7 +34,7 @@
       </div>
       <div>
         <span class="brand-title">RAPIDAID</span>
-        <span class="brand-sub">Koshi Emergency Corridor</span>
+        <span class="brand-sub">Itahari &amp; Koshi Corridor</span>
       </div>
     </div>
 
@@ -42,30 +46,34 @@
     </div>
   </header>
 
-  <!-- SCREEN 1: START MENU (email/password) -->
+  <!-- SCREEN 1: SIGN IN / START -->
   <main id="screen-auth" class="screen container">
     <section class="auth-shell">
       <div class="auth-art">
-        <div class="badge-live">LIVE DISPATCH &amp; ROUTING SIMULATION</div>
-        <h1>Help, <span class="grad-text">faster.</span></h1>
-        <p class="hero-desc">Emergency requests, dispatcher triage and live ambulance routing for the Itahari corridor.</p>
-        <img src="assets/hero-ambulance.svg" alt="Ambulance racing through the city" class="hero-art" />
-        <div class="chip-row">
-          <span class="feature-chip">Live GPS pin</span>
-          <span class="feature-chip">Nearest-unit match</span>
-          <span class="feature-chip">Duplicate detection</span>
+        <span class="eyebrow">ITAHARI &amp; KOSHI CORRIDOR</span>
+        <h1>Emergency ambulance dispatch.</h1>
+        <p class="hero-desc">Pin the incident location, send patient details to the central desk, and track the assigned unit to the hospital.</p>
+        <div class="emergency-callout">
+          <div class="emergency-callout-copy">
+            <strong>Need an ambulance right now?</strong>
+            <span>Skip sign-in and open the emergency pin form immediately.</span>
+          </div>
+          <button type="button" id="btn-guest" class="btn btn-danger btn-lg full-width">
+            Request Ambulance Without Account
+          </button>
         </div>
+        <img src="assets/hero-ambulance.svg" alt="Ambulance routing across the Itahari corridor" class="hero-art" />
       </div>
 
       <div class="auth-card">
         <div id="offline-banner" class="offline-banner hidden">
-          <strong>Backend server is offline.</strong>
-          Start it in a terminal: <code>cd backend</code> then <code>uvicorn main:app --port 8000</code>, and open
+          <strong>Backend server offline.</strong>
+          Run <code>cd backend</code> and <code>uvicorn main:app --port 8000</code>, then open
           <code>http://localhost:8000</code>.
         </div>
         <img src="assets/logo.svg" alt="RapidAid" class="auth-logo" />
-        <h2>Welcome to RapidAid</h2>
-        <p class="auth-sub">Sign in to continue. Dispatchers go straight to the command center, everyone else goes to the emergency portal.</p>
+        <h2>Account Sign In</h2>
+        <p class="auth-sub">Dispatchers open the command center; registered callers open the request form.</p>
 
         <div class="tabs" role="tablist">
           <button type="button" id="tab-signin" class="tab active" role="tab">Sign in</button>
@@ -75,37 +83,32 @@
         <form id="auth-form" novalidate>
           <div class="form-group hidden" id="reg-name-group">
             <label for="auth-name">Full name</label>
-            <input type="text" id="auth-name" autocomplete="name" placeholder="e.g., Aarav Sharma" />
+            <input type="text" id="auth-name" autocomplete="name" placeholder="Aarav Sharma" />
           </div>
           <div class="form-group">
-            <label for="auth-email">Email or username</label>
+            <label for="auth-email">Email or dispatcher ID</label>
             <input type="text" id="auth-email" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="you@example.com" />
           </div>
           <div class="form-group">
             <label for="auth-password">Password</label>
             <div class="pw-wrap">
-              <input type="password" id="auth-password" autocomplete="current-password" placeholder="Your password" />
+              <input type="password" id="auth-password" autocomplete="current-password" placeholder="Enter password" />
               <button type="button" id="btn-toggle-pw" class="pw-toggle" aria-label="Show password">Show</button>
             </div>
           </div>
           <div id="auth-error" class="error-banner hidden"></div>
           <button type="submit" id="btn-auth-submit" class="btn btn-primary btn-lg full-width">Sign in</button>
         </form>
-
-        <button type="button" id="btn-guest" class="btn btn-ghost full-width guest-btn">
-          I need help right now &mdash; continue without an account
-        </button>
       </div>
     </section>
   </main>
 
-  <!-- SCREEN 2: CUSTOMER / REQUESTER VIEW -->
+  <!-- SCREEN 2: REQUESTER VIEW -->
   <main id="screen-customer" class="screen container hidden">
-  <!-- Active Request Live Tracker (Hidden until submitted) -->
     <section id="customer-tracker-card" class="card tracker-card hidden">
       <div class="tracker-header">
         <div>
-          <span class="eyebrow">ACTIVE EMERGENCY TICKET</span>
+          <span class="eyebrow">ACTIVE INCIDENT</span>
           <h2 id="track-req-id">INC-000000</h2>
         </div>
         <span id="track-status-badge" class="status-pill status-PENDING">PENDING</span>
@@ -122,12 +125,11 @@
         </div>
       </div>
 
-      <!-- Progress Stepper -->
       <div class="progress-steps">
-        <div class="step-item" data-step="PENDING">1. Received</div>
-        <div class="step-item" data-step="VERIFIED">2. Verified</div>
-        <div class="step-item" data-step="EN_ROUTE">3. En Route</div>
-        <div class="step-item" data-step="ARRIVED">4. Arrived</div>
+        <div class="step-item" data-step="PENDING">Received</div>
+        <div class="step-item" data-step="VERIFIED">Verified</div>
+        <div class="step-item" data-step="EN_ROUTE">En Route</div>
+        <div class="step-item" data-step="ARRIVED">Arrived</div>
       </div>
 
       <div class="tracker-meta">
@@ -144,50 +146,49 @@
       <button id="btn-new-request" class="btn btn-secondary full-width">Submit Another Request</button>
     </section>
 
-    <!-- Emergency Request Form -->
     <section id="customer-form-card" class="card">
       <div class="card-header-row">
         <div>
-          <span class="eyebrow">EMERGENCY REQUESTER</span>
-          <h2>Request Ambulance Dispatch</h2>
+          <span class="eyebrow">EMERGENCY REQUEST</span>
+          <h2>Request an Ambulance</h2>
         </div>
-        <label class="toggle-chip" title="Skip 15s anti-spam cooldown during live demos">
+        <label class="toggle-chip" title="Bypass the 15-second repeat-request cooldown during testing">
           <input type="checkbox" id="demo-bypass-cooldown" />
-          <span>Demo Bypass Cooldown</span>
+          <span>Bypass Cooldown</span>
         </label>
       </div>
 
       <form id="emergency-form" novalidate>
-        <!-- Step 1: Patient Info -->
         <div class="form-grid-2">
           <div class="form-group">
-            <label for="patient-name">Patient / Caller Name *</label>
-            <input type="text" id="patient-name" placeholder="e.g., Aarav Sharma" required />
+            <label for="patient-name">Patient or Caller Name *</label>
+            <input type="text" id="patient-name" placeholder="Aarav Sharma" required />
           </div>
           <div class="form-group">
             <label for="patient-phone">Callback Phone Number *</label>
-            <input type="tel" id="patient-phone" placeholder="e.g., 9842012345" required />
+            <input type="tel" id="patient-phone" placeholder="9842012345" required />
           </div>
         </div>
 
         <div class="form-group">
-          <label for="injury-description">What happened? Describe the injury or medical emergency *</label>
-          <textarea id="injury-description" rows="4" maxlength="1200" placeholder="Describe the patient's condition, injury, and any urgent details for the dispatcher." required></textarea>
+          <label for="injury-description">Injury or Medical Condition *</label>
+          <textarea id="injury-description" rows="4" maxlength="1200" placeholder="Describe symptoms, injuries, consciousness, and access details." required></textarea>
         </div>
+
         <div class="form-group">
-          <label for="evidence-photo">Photo evidence (optional)</label>
+          <label for="evidence-photo">Scene Photo (Optional)</label>
           <input type="file" id="evidence-photo" accept="image/*" />
-          <small class="hint-text">Optional image of the scene or injury. Avoid uploading unrelated or sensitive images.</small>
+          <small class="hint-text">Optional photo up to 5 MB. Avoid uploading unrelated or sensitive files.</small>
         </div>
 
         <div class="form-group">
           <div class="location-header">
-            <label>Emergency location *</label>
-            <span id="coord-readout" class="coord-badge">Choose your location</span>
+            <label>Incident Location *</label>
+            <span id="coord-readout" class="coord-badge">Choose location on map</span>
           </div>
-          <button type="button" id="btn-use-location" class="btn btn-secondary btn-sm">Use my current location</button>
+          <button type="button" id="btn-use-location" class="btn btn-secondary btn-sm">Use current GPS location</button>
           <div id="customer-map" class="map-box"></div>
-          <small class="hint-text">Allow location access to place the pin automatically, or tap/drag the pin to select the location manually.</small>
+          <small class="hint-text">Use GPS or click/drag the pin on the map to set exact coordinates.</small>
         </div>
 
         <div id="customer-error-box" class="error-banner hidden"></div>
@@ -201,54 +202,49 @@
 
   <!-- SCREEN 3: DISPATCHER COMMAND CENTER -->
   <main id="screen-dispatcher" class="screen hidden">
-    <!-- Unlocked Command Center -->
     <div id="dispatcher-workspace" class="workspace">
-      <!-- Fleet Summary Header -->
       <div class="stats-bar">
         <div class="station-tag">
-          <span class="eyebrow">ACTIVE STATION</span>
+          <span class="eyebrow">DISPATCH DESK</span>
           <strong id="active-station-name">Itahari Central Dispatch</strong>
         </div>
 
         <div class="stat-pills">
           <div class="stat-box">
             <span class="stat-num text-green" id="stat-available">0</span>
-            <span class="stat-lbl">Available Units</span>
+            <span class="stat-lbl">Available</span>
           </div>
           <div class="stat-box">
             <span class="stat-num text-amber" id="stat-enroute">0</span>
-            <span class="stat-lbl">En-Route</span>
+            <span class="stat-lbl">En Route</span>
           </div>
           <div class="stat-box">
             <span class="stat-num text-red" id="stat-active">0</span>
-            <span class="stat-lbl">Active Incidents</span>
+            <span class="stat-lbl">Active Queue</span>
           </div>
         </div>
 
-        <button id="btn-reset-demo" class="btn btn-secondary btn-sm">Reset Demo</button>
+        <button id="btn-reset-demo" class="btn btn-secondary btn-sm">Reset Fleet</button>
       </div>
 
-      <!-- Split Command Layout: Queue + Live Fleet Map -->
       <div class="command-grid">
-        <!-- Left Panel: Incoming Triage Queue -->
         <aside class="queue-panel">
           <div class="panel-header">
-            <h3>Incoming Incident Queue</h3>
+            <h3>Incident Queue</h3>
             <span id="queue-count-badge" class="count-badge">0</span>
           </div>
           <div id="incident-queue-list" class="queue-list">
-            <div class="empty-state">No active emergency requests. Waiting for incoming alerts...</div>
+            <div class="empty-state">No active incidents in queue.</div>
           </div>
         </aside>
 
-        <!-- Right Panel: Live Fleet Map & Unit Cards -->
         <section class="map-panel">
           <div class="view-bar">
             <div class="view-tabs" role="tablist">
               <button type="button" id="btn-view-map" class="view-tab active">Map</button>
               <button type="button" id="btn-view-detail" class="view-tab" disabled>Incident details</button>
             </div>
-            <label class="toggle-chip" title="Show real hospitals from OpenStreetMap on the map">
+            <label class="toggle-chip" title="Toggle OpenStreetMap hospital markers">
               <input type="checkbox" id="toggle-hospitals" checked />
               <span>Hospitals</span>
             </label>
@@ -268,12 +264,11 @@
 
   <div id="lightbox" class="lightbox hidden" title="Click to close"><img id="lightbox-img" alt="Uploaded evidence photo" /></div>
 
-  <!-- Leaflet JS via CDN -->
   <script
     src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin=""
   ></script>
-  <script src="app.js?v=3"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>
