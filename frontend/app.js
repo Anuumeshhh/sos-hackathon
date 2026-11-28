@@ -728,8 +728,7 @@ function setupAuthHandlers() {
   $("btn-guest").addEventListener("click", () => { clearSession(); setRole("customer"); });
 
   $("btn-google-login").addEventListener("click", () => {
-    // Prototype redirect to Google Sign-In
-    window.location.href = `https://accounts.google.com/ServiceLogin?continue=${encodeURIComponent(window.location.href)}`;
+    window.location.href = "google-maintenance.html";
   });
 }
 

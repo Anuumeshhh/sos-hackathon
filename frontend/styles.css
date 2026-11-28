@@ -123,9 +123,11 @@
 
 html {
   scroll-behavior: smooth;
+  overflow-x: clip;
 }
 
 body {
+  overflow-x: clip;
   font-family: var(--font-sans);
   font-weight: 400;
   font-size: 16px;
@@ -1733,30 +1735,55 @@ select option {
 
 .leaflet-popup-tip-container { display: none; }
 
-/* ── Responsive ─────────────────────────────────────────────────── */
+/* ── Responsive & dynamic mobile scaling ────────────────────────── */
 @media (max-width: 800px) {
   .auth-shell {
     grid-template-columns: 1fr;
+    gap: 20px;
+    padding: 8px 0 24px;
   }
 
   .auth-art h1 {
-    font-size: 1.75rem;
+    font-size: clamp(1.5rem, 6vw, 1.9rem);
   }
 
   .hero-art {
     display: none;
   }
 
+  .workspace {
+    height: auto;
+    min-height: calc(100dvh - 64px);
+  }
+
   .command-grid {
     grid-template-columns: 1fr;
-    grid-template-rows: 55vh 1fr;
+    grid-template-rows: auto auto;
+    overflow: visible;
   }
 
   .queue-panel {
     border-right: none;
-    border-top: 1px solid var(--border);
-    max-height: 45vh;
-    overflow: hidden;
+    border-bottom: 2px solid var(--border);
+    max-height: 400px;
+  }
+
+  .map-panel {
+    min-height: 55dvh;
+    overflow: visible;
+  }
+
+  .dispatcher-map-box {
+    height: 52dvh;
+    min-height: 300px;
+  }
+
+  .view-detail {
+    padding: 16px;
+  }
+
+  .assign-row {
+    flex-direction: column;
   }
 
   .fleet-strip {
@@ -1764,7 +1791,11 @@ select option {
   }
 
   .tracker-actions {
-    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .tracker-actions .btn {
+    width: 100%;
   }
 
   .progress-steps {
@@ -1772,13 +1803,16 @@ select option {
   }
 }
 
-@media (max-width: 540px) {
+@media (max-width: 600px) {
   .container {
-    padding: 16px 12px;
+    padding: 14px 12px;
   }
 
   .topbar {
-    padding: 0 16px;
+    padding: 10px 14px;
+    min-height: 56px;
+    flex-wrap: wrap;
+    gap: 10px;
   }
 
   .brand-sub {
@@ -1787,6 +1821,74 @@ select option {
 
   .brand-title {
     font-size: 1rem;
+  }
+
+  .topbar-actions {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .topbar-actions .btn-sm {
+    min-height: 36px;
+    padding: 6px 10px;
+    font-size: 0.76rem;
+  }
+
+  .conn-pill,
+  .user-chip {
+    min-height: 32px;
+    font-size: 0.72rem;
+    padding: 4px 8px;
+  }
+
+  .card,
+  .auth-card {
+    padding: 18px 14px;
+  }
+
+  .card-header-row h2,
+  .tracker-header h2,
+  .detail-head h2 {
+    font-size: 1.15rem;
+    word-break: break-word;
+  }
+
+  .tracker-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .map-box,
+  .map-box-sm {
+    height: 240px;
+  }
+
+  .stats-bar {
+    padding: 10px 12px;
+    gap: 10px;
+  }
+
+  .stat-pills {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+
+  .stat-box {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding: 8px 10px;
+  }
+
+  .stat-num {
+    font-size: 0.95rem;
+  }
+
+  .stat-lbl {
+    font-size: 0.68rem;
   }
 
   .eta-box {
@@ -1798,6 +1900,10 @@ select option {
     border-left: none;
     border-top: 1px solid var(--border);
     padding-top: 12px;
+  }
+
+  .unit-mini-card {
+    flex: 0 0 185px;
   }
 }
 
