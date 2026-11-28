@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RapidAid Itahari — Ambulance Dispatch</title>
+  <title>RapidAid</title>
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -13,12 +13,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
-    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&family=Source+Sans+3:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap"
     rel="stylesheet"
   />
   <link rel="icon" type="image/jpeg" href="assets/logo.jpg" />
-  <meta name="theme-color" content="#f4f6f8" />
-  <link rel="stylesheet" href="styles.css?v=6" />
+  <meta name="theme-color" content="#f3f7f4" />
+  <link rel="stylesheet" href="styles.css?v=13" />
 </head>
 <body>
   <header class="topbar">
@@ -52,9 +52,7 @@
   <main id="screen-auth" class="screen container">
     <section class="auth-shell">
       <div class="auth-art">
-        <span class="eyebrow" data-i18n="heroEyebrow">ITAHARI &amp; KOSHI CORRIDOR</span>
         <h1 data-i18n="heroTitle">Emergency ambulance dispatch.</h1>
-        <p class="hero-desc" data-i18n="heroDesc">Pin the incident location, send patient details to the central desk, and track the assigned unit to the hospital.</p>
         <div class="emergency-callout">
           <div class="emergency-callout-copy">
             <strong data-i18n="guestCalloutTitle">Need an ambulance right now?</strong>
@@ -69,17 +67,16 @@
 
       <div class="auth-card">
         <div id="offline-banner" class="offline-banner hidden">
-          <strong>Backend server offline.</strong>
-          Run <code>cd backend</code> and <code>uvicorn main:app --port 8000</code>, then open
-          <code>http://localhost:8000</code>.
+          <strong data-i18n="offlineTitle">Service unavailable.</strong>
+          <span data-i18n="offlineDesc">Unable to reach the dispatch server right now.</span>
+          <a href="tel:102" class="offline-tel" data-i18n="offlineTel">Call 102</a>
         </div>
         <img src="assets/logo.jpg" alt="RapidAid" class="auth-logo" />
-        <h2>Account Sign In</h2>
-        <p class="auth-sub">Dispatchers open the command center; registered callers open the request form.</p>
+        <h2 data-i18n="authTitle">Account Sign In</h2>
 
         <div class="tabs" role="tablist">
-          <button type="button" id="tab-signin" class="tab active" role="tab">Sign in</button>
-          <button type="button" id="tab-register" class="tab" role="tab">Create account</button>
+          <button type="button" id="tab-signin" class="tab active" role="tab" data-i18n="tabSignin">Sign in</button>
+          <button type="button" id="tab-register" class="tab" role="tab" data-i18n="tabRegister">Create account</button>
         </div>
 
         <form id="auth-form" novalidate>
@@ -145,7 +142,10 @@
         <div id="customer-live-map" class="map-box-sm"></div>
       </div>
 
-      <button id="btn-new-request" class="btn btn-secondary full-width" data-i18n="newRequestBtn">Submit Another Request</button>
+      <div class="tracker-actions">
+        <button id="btn-copy-track" type="button" class="btn btn-primary full-width" data-i18n="copyTrackBtn">Copy Tracking Link</button>
+        <button id="btn-new-request" class="btn btn-secondary full-width" data-i18n="newRequestBtn">Submit Another Request</button>
+      </div>
     </section>
 
     <section id="customer-form-card" class="card">
@@ -187,7 +187,6 @@
         <div class="form-group">
           <label for="evidence-photo" data-i18n="lblPhoto">Scene Photo (Optional)</label>
           <input type="file" id="evidence-photo" accept="image/*" />
-          <small class="hint-text">Optional photo up to 5 MB. Avoid uploading unrelated or sensitive files.</small>
         </div>
 
         <div class="form-group">
@@ -196,8 +195,14 @@
             <span id="coord-readout" class="coord-badge">Choose location on map</span>
           </div>
           <button type="button" id="btn-use-location" class="btn btn-secondary btn-sm" data-i18n="btnUseGps">Use current GPS location</button>
+          <div id="landmark-jumps" class="preset-row landmark-row" role="group" aria-label="Itahari landmarks">
+            <button type="button" class="preset-chip" data-lat="26.6646" data-lng="87.2718" data-label="Itahari Chowk">Itahari Chowk</button>
+            <button type="button" class="preset-chip" data-lat="26.7042" data-lng="87.2738" data-label="Tarahara">Tarahara</button>
+            <button type="button" class="preset-chip" data-lat="26.6258" data-lng="87.2762" data-label="Khanar">Khanar</button>
+            <button type="button" class="preset-chip" data-lat="26.6641" data-lng="87.2111" data-label="Jhumka">Jhumka</button>
+            <button type="button" class="preset-chip" data-lat="26.5648" data-lng="87.2761" data-label="Duhabi">Duhabi</button>
+          </div>
           <div id="customer-map" class="map-box"></div>
-          <small class="hint-text" data-i18n="hintLocation">Use GPS or click/drag the pin on the map to set exact coordinates.</small>
         </div>
 
         <div id="customer-error-box" class="error-banner hidden"></div>
@@ -242,11 +247,15 @@
             <h3>Incident Queue</h3>
             <span id="queue-count-badge" class="count-badge">0</span>
           </div>
+          <div class="queue-search-wrap">
+            <input type="search" id="queue-search" placeholder="Search name, phone, or ID..." aria-label="Search incidents" />
+          </div>
           <div id="queue-filters" class="queue-filters" role="group" aria-label="Filter incidents">
             <button type="button" class="filter-pill active" data-filter="ALL">All</button>
             <button type="button" class="filter-pill" data-filter="PENDING">Pending</button>
             <button type="button" class="filter-pill" data-filter="CRITICAL">Critical</button>
             <button type="button" class="filter-pill" data-filter="EN_ROUTE">En Route</button>
+            <button type="button" class="filter-pill" data-filter="COMPLETED">Completed</button>
           </div>
           <div id="incident-queue-list" class="queue-list">
             <div class="empty-state">No active incidents in queue.</div>

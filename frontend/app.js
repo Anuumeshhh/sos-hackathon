@@ -24,6 +24,7 @@ const state = {
   dispatcherMap: null,
   dView: "map",
   queueFilter: "ALL",
+  queueSearch: "",
   selectedIncidentId: null,
   photoShownFor: null,
   evidenceCache: {},
@@ -267,8 +268,17 @@ function setMarkerPos(marker, lat, lng) {
   const p = marker.getLatLng();
   if (p.lat !== lat || p.lng !== lng) marker.setLatLng([lat, lng]);
 }
+const mapTileLayers = [];
+function tileUrlForTheme(dark) {
+  return dark
+    ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+    : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+}
 function addTiles(map) {
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "&copy; OpenStreetMap contributors", maxZoom: 19 }).addTo(map);
+  const dark = document.documentElement.dataset.theme === "dark";
+  const layer = L.tileLayer(tileUrlForTheme(dark), { attribution: "&copy; OpenStreetMap contributors", maxZoom: 19 }).addTo(map);
+  mapTileLayers.push(layer);
+  return layer;
 }
 
 // ---------- Hospital data (OpenStreetMap via backend) ----------
@@ -372,12 +382,22 @@ function updateTopbar() {
 }
 
 // ---------- Customer map & form ----------
+const LEAFLET_MAP_OPTS = {
+  zoomAnimation: true,
+  fadeAnimation: true,
+  markerZoomAnimation: true,
+  inertia: true,
+  inertiaDeceleration: 2400,
+  wheelPxPerZoomLevel: 90,
+  zoomSnap: 0.5,
+};
+
 function initCustomerMap() {
   if (state.customerMap) {
     setTimeout(() => state.customerMap.invalidateSize(), 120);
     return;
   }
-  state.customerMap = L.map("customer-map").setView(ITAHARI_CENTER, 14);
+  state.customerMap = L.map("customer-map", LEAFLET_MAP_OPTS).setView(ITAHARI_CENTER, 14);
   addTiles(state.customerMap);
   state.customerHospLayer = L.layerGroup().addTo(state.customerMap);
   drawHospitalMarkers(state.customerHospLayer);
@@ -397,7 +417,7 @@ function setCustomerCoords(lat, lng, label) {
   state.selectedLocationLabel = label;
   $("coord-readout").textContent = `${state.selectedLat}, ${state.selectedLng} (${label})`;
   if (state.customerPin) state.customerPin.setLatLng([state.selectedLat, state.selectedLng]);
-  if (state.customerMap) state.customerMap.panTo([state.selectedLat, state.selectedLng]);
+  if (state.customerMap) state.customerMap.panTo([state.selectedLat, state.selectedLng], { animate: true, duration: 0.45 });
 }
 
 function requestBrowserLocation(showErrors = true) {
@@ -433,6 +453,29 @@ function setupCustomerHandlers() {
         ta.value = cur ? `${cur}, ${text}` : text;
       }
       ta.focus();
+    });
+  }
+  const landmarks = $("landmark-jumps");
+  if (landmarks) {
+    landmarks.addEventListener("click", (e) => {
+      const btn = e.target.closest(".preset-chip");
+      if (!btn) return;
+      setCustomerCoords(Number(btn.dataset.lat), Number(btn.dataset.lng), btn.dataset.label);
+    });
+  }
+  const copyBtn = $("btn-copy-track");
+  if (copyBtn) {
+    copyBtn.addEventListener("click", async () => {
+      if (!state.activeRequestId) return;
+      const url = `${location.origin}${location.pathname}?track=${encodeURIComponent(state.activeRequestId)}`;
+      const prev = copyBtn.textContent;
+      try {
+        await navigator.clipboard.writeText(url);
+        copyBtn.textContent = state.lang === "ne" ? "लिङ्क कपी भयो!" : "Copied!";
+        setTimeout(() => { copyBtn.textContent = prev; }, 1800);
+      } catch (_) {
+        prompt("Copy tracking link:", url);
+      }
     });
   }
   $("emergency-form").addEventListener("submit", async (e) => {
@@ -512,7 +555,7 @@ function showCustomerTracker() {
   $("customer-form-card").classList.add("hidden");
   $("customer-tracker-card").classList.remove("hidden");
   if (!state.customerLiveMap) {
-    state.customerLiveMap = L.map("customer-live-map").setView(ITAHARI_CENTER, 14);
+    state.customerLiveMap = L.map("customer-live-map", LEAFLET_MAP_OPTS).setView(ITAHARI_CENTER, 14);
     addTiles(state.customerLiveMap);
   }
   setTimeout(() => state.customerLiveMap.invalidateSize(), 120);
@@ -732,6 +775,13 @@ function setupDispatcherHandlers() {
       if (state.lastSys) renderQueue(state.lastSys);
     });
   }
+  const qSearch = $("queue-search");
+  if (qSearch) {
+    qSearch.addEventListener("input", (e) => {
+      state.queueSearch = e.target.value.trim().toLowerCase();
+      if (state.lastSys) renderQueue(state.lastSys);
+    });
+  }
   $("toggle-hospitals").addEventListener("change", (e) => {
     state.showHospitals = e.target.checked;
     const layer = state.dLayers.hospitals;
@@ -747,7 +797,26 @@ function setupDispatcherHandlers() {
   });
   $("lightbox").addEventListener("click", () => $("lightbox").classList.add("hidden"));
   window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") $("lightbox").classList.add("hidden");
+    if (e.key === "Escape") {
+      if (!$("lightbox").classList.contains("hidden")) {
+        $("lightbox").classList.add("hidden");
+      } else if (state.role === "dispatcher" && state.dView === "detail") {
+        setDispatcherView("map");
+      }
+      return;
+    }
+    if (state.role !== "dispatcher") return;
+    const tag = document.activeElement && document.activeElement.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      const cards = [...document.querySelectorAll("#incident-queue-list .inc-card")];
+      if (!cards.length) return;
+      e.preventDefault();
+      const idx = cards.findIndex((c) => c.classList.contains("is-selected"));
+      const next = e.key === "ArrowDown" ? (idx + 1) % cards.length : (idx - 1 + cards.length) % cards.length;
+      cards[next].click();
+      cards[next].scrollIntoView({ block: "nearest" });
+    }
   });
 }
 
@@ -756,7 +825,7 @@ function initDispatcherMap() {
     setTimeout(() => state.dispatcherMap.invalidateSize(), 120);
     return;
   }
-  state.dispatcherMap = L.map("dispatcher-map").setView(ITAHARI_CENTER, 13);
+  state.dispatcherMap = L.map("dispatcher-map", LEAFLET_MAP_OPTS).setView(ITAHARI_CENTER, 13);
   addTiles(state.dispatcherMap);
   state.dLayers.hospitals = L.layerGroup();
   if (state.showHospitals) state.dLayers.hospitals.addTo(state.dispatcherMap);
@@ -789,10 +858,16 @@ function renderDispatcherView(sys) {
 
 function renderQueue(sys) {
   const listEl = $("incident-queue-list");
+  const q = state.queueSearch;
   const filtered = sys.requests.filter((r) => {
-    if (state.queueFilter === "PENDING") return r.status === "PENDING";
-    if (state.queueFilter === "CRITICAL") return r.severity === "CRITICAL" && !isResolved(r);
-    if (state.queueFilter === "EN_ROUTE") return r.status === "EN_ROUTE";
+    if (state.queueFilter === "PENDING" && r.status !== "PENDING") return false;
+    if (state.queueFilter === "CRITICAL" && !(r.severity === "CRITICAL" && !isResolved(r))) return false;
+    if (state.queueFilter === "EN_ROUTE" && r.status !== "EN_ROUTE") return false;
+    if (state.queueFilter === "COMPLETED" && !isResolved(r)) return false;
+    if (q) {
+      const hay = `${r.patient_name || ""} ${r.phone || ""} ${r.id || ""}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
     return true;
   });
   if (!filtered.length) {
@@ -943,13 +1018,23 @@ function focusAmbulance(ambId) {
   const amb = state.lastSys && state.lastSys.ambulances.find((a) => a.id === ambId);
   if (!amb || !state.dispatcherMap) return;
   if (state.dView !== "map") setDispatcherView("map");
-  state.dispatcherMap.setView([amb.current_lat, amb.current_lng], 15, { animate: true });
+  state.dispatcherMap.flyTo([amb.current_lat, amb.current_lng], 15, { duration: 0.65 });
   const marker = state.dLayers.ambulances[ambId];
   if (marker) marker.openTooltip();
 }
 
 function renderFleet(sys) {
-  setHtml($("fleet-strip"), sys.ambulances.map((amb) => `
+  const strip = $("fleet-strip");
+  if (strip && !strip.dataset.wheelBound) {
+    strip.dataset.wheelBound = "1";
+    strip.addEventListener("wheel", (e) => {
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        e.preventDefault();
+        strip.scrollBy({ left: e.deltaY * 1.8, behavior: "smooth" });
+      }
+    }, { passive: false });
+  }
+  setHtml(strip, sys.ambulances.map((amb) => `
     <div class="unit-mini-card" role="button" tabindex="0" title="Focus ${escapeHtml(amb.callsign)} on map"
          onclick="focusAmbulance('${amb.id}')" onkeydown="if(event.key==='Enter')focusAmbulance('${amb.id}')">
       <div class="unit-top"><img src="assets/ambulance.svg" class="mini-ico" alt="" /><strong>${escapeHtml(amb.callsign)}</strong></div>
@@ -1110,16 +1195,21 @@ async function pollSystemState() {
 
 const I18N = {
   en: {
-    heroEyebrow: "ITAHARI & KOSHI CORRIDOR",
     heroTitle: "Emergency ambulance dispatch.",
-    heroDesc: "Pin the incident location, send patient details to the central desk, and track the assigned unit to the hospital.",
     guestCalloutTitle: "Need an ambulance right now?",
     guestCalloutSub: "Skip sign-in and open the emergency pin form immediately.",
     guestBtn: "Request Ambulance Without Account",
+    offlineTitle: "Service unavailable.",
+    offlineDesc: "Unable to reach the dispatch server right now.",
+    offlineTel: "Call 102",
+    authTitle: "Account Sign In",
+    tabSignin: "Sign in",
+    tabRegister: "Create account",
     stepReceived: "Received",
     stepVerified: "Verified",
     stepEnRoute: "En Route",
     stepArrived: "Arrived",
+    copyTrackBtn: "Copy Tracking Link",
     newRequestBtn: "Submit Another Request",
     formEyebrow: "EMERGENCY REQUEST",
     formTitle: "Request an Ambulance",
@@ -1134,20 +1224,24 @@ const I18N = {
     lblPhoto: "Scene Photo (Optional)",
     lblLocation: "Incident Location *",
     btnUseGps: "Use current GPS location",
-    hintLocation: "Use GPS or click/drag the pin on the map to set exact coordinates.",
     btnSubmitEmergency: "DISPATCH EMERGENCY AMBULANCE",
   },
   ne: {
-    heroEyebrow: "इटहरी र कोशी करिडोर",
     heroTitle: "आकस्मिक एम्बुलेन्स डिस्प्याच।",
-    heroDesc: "घटनाको स्थान पिन गर्नुहोस्, बिरामीको विवरण पठाउनुहोस्, र अस्पताल पुग्दासम्म एम्बुलेन्स ट्र्याक गर्नुहोस्।",
     guestCalloutTitle: "तुरुन्तै एम्बुलेन्स चाहियो?",
     guestCalloutSub: "साइन-इन नगरी सिधै आकस्मिक फारम खोल्नुहोस्।",
     guestBtn: "खाता बिना एम्बुलेन्स अनुरोध गर्नुहोस्",
+    offlineTitle: "सेवा उपलब्ध छैन।",
+    offlineDesc: "अहिले डिस्प्याच सर्भरसँग जडान हुन सकेन।",
+    offlineTel: "१०२ मा फोन गर्नुहोस्",
+    authTitle: "खाता साइन इन",
+    tabSignin: "साइन इन",
+    tabRegister: "नयाँ खाता",
     stepReceived: "प्राप्त भयो",
     stepVerified: "प्रमाणित",
     stepEnRoute: "बाटोमा",
     stepArrived: "पुग्यो",
+    copyTrackBtn: "ट्र्याकिङ लिङ्क कपी गर्नुहोस्",
     newRequestBtn: "अर्को अनुरोध पठाउनुहोस्",
     formEyebrow: "आकस्मिक अनुरोध",
     formTitle: "एम्बुलेन्स बोलाउनुहोस्",
@@ -1162,7 +1256,6 @@ const I18N = {
     lblPhoto: "घटनास्थलको फोटो (ऐच्छिक)",
     lblLocation: "घटनाको स्थान *",
     btnUseGps: "हालको GPS स्थान प्रयोग गर्नुहोस्",
-    hintLocation: "GPS प्रयोग गर्नुहोस् वा नक्सामा पिन तानेर सही स्थान छान्नुहोस्।",
     btnSubmitEmergency: "आकस्मिक एम्बुलेन्स पठाउनुहोस्",
   },
 };
@@ -1185,6 +1278,8 @@ function applyTheme(theme) {
   localStorage.setItem("rapidaid_theme", dark ? "dark" : "light");
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute("content", dark ? "#0b1120" : "#f4f6f8");
+  const url = tileUrlForTheme(dark);
+  mapTileLayers.forEach((layer) => layer.setUrl(url));
   const btn = $("theme-btn");
   if (btn) {
     btn.textContent = dark ? "Light" : "Dark";
@@ -1222,8 +1317,16 @@ window.addEventListener("DOMContentLoaded", () => {
   setupDispatcherHandlers();
 
   localStorage.removeItem("active_request_id");
-  if (getSession()) routeAfterLogin();
-  else setRole("auth");
+  const trackParam = new URLSearchParams(location.search).get("track");
+  if (trackParam) {
+    clearSession();
+    localStorage.setItem(activeRequestKey(), trackParam);
+    setRole("customer");
+  } else if (getSession()) {
+    routeAfterLogin();
+  } else {
+    setRole("auth");
+  }
 
   const ping = () => apiFetch("/api/health").then(() => updateConnectionPill(true)).catch(() => updateConnectionPill(false));
   ping();
