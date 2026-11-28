@@ -1671,6 +1671,15 @@ select option {
 .leaflet-container {
   font-family: var(--font-sans) !important;
   border-radius: 4px;
+  background: var(--bg-elevated) !important;
+}
+
+.leaflet-tile-pane {
+  will-change: transform;
+}
+
+:root[data-theme="dark"] .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9);
 }
 
 .leaflet-popup-content-wrapper {

@@ -269,14 +269,18 @@ function setMarkerPos(marker, lat, lng) {
   if (p.lat !== lat || p.lng !== lng) marker.setLatLng([lat, lng]);
 }
 const mapTileLayers = [];
-function tileUrlForTheme(dark) {
-  return dark
-    ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-    : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+function tileUrlForTheme() {
+  return "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 }
 function addTiles(map) {
-  const dark = document.documentElement.dataset.theme === "dark";
-  const layer = L.tileLayer(tileUrlForTheme(dark), { attribution: "&copy; OpenStreetMap contributors", maxZoom: 19 }).addTo(map);
+  const layer = L.tileLayer(tileUrlForTheme(), {
+    attribution: "&copy; OpenStreetMap contributors",
+    subdomains: "abc",
+    maxZoom: 19,
+    keepBuffer: 8,
+    updateWhenZooming: false,
+    updateWhenIdle: false,
+  }).addTo(map);
   mapTileLayers.push(layer);
   return layer;
 }
@@ -384,12 +388,15 @@ function updateTopbar() {
 // ---------- Customer map & form ----------
 const LEAFLET_MAP_OPTS = {
   zoomAnimation: true,
-  fadeAnimation: true,
+  fadeAnimation: false,
   markerZoomAnimation: true,
   inertia: true,
-  inertiaDeceleration: 2400,
-  wheelPxPerZoomLevel: 90,
-  zoomSnap: 0.5,
+  inertiaDeceleration: 2200,
+  inertiaMaxSpeed: 1800,
+  wheelDebounceTime: 25,
+  wheelPxPerZoomLevel: 120,
+  zoomSnap: 0.25,
+  zoomDelta: 0.5,
 };
 
 function initCustomerMap() {
