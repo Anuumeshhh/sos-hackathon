@@ -726,6 +726,11 @@ function setupAuthHandlers() {
   });
 
   $("btn-guest").addEventListener("click", () => { clearSession(); setRole("customer"); });
+
+  $("btn-google-login").addEventListener("click", () => {
+    // Prototype redirect to Google Sign-In
+    window.location.href = `https://accounts.google.com/ServiceLogin?continue=${encodeURIComponent(window.location.href)}`;
+  });
 }
 
 // ---------- Dispatcher: view switching ----------
@@ -1213,6 +1218,8 @@ const I18N = {
     authTitle: "Account Sign In",
     tabSignin: "Sign in",
     tabRegister: "Create account",
+    orDivider: "or",
+    googleBtn: "Continue with Google",
     stepReceived: "Received",
     stepVerified: "Verified",
     stepEnRoute: "En Route",
@@ -1245,6 +1252,8 @@ const I18N = {
     authTitle: "खाता साइन इन",
     tabSignin: "साइन इन",
     tabRegister: "नयाँ खाता",
+    orDivider: "वा",
+    googleBtn: "Google बाट जारी राख्नुहोस्",
     stepReceived: "प्राप्त भयो",
     stepVerified: "प्रमाणित",
     stepEnRoute: "बाटोमा",
