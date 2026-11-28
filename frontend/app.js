@@ -277,9 +277,9 @@ function addTiles(map) {
     attribution: "&copy; OpenStreetMap contributors",
     subdomains: "abc",
     maxZoom: 19,
-    keepBuffer: 8,
+    keepBuffer: 10,
     updateWhenZooming: false,
-    updateWhenIdle: false,
+    updateWhenIdle: true,
   }).addTo(map);
   mapTileLayers.push(layer);
   return layer;
@@ -387,16 +387,17 @@ function updateTopbar() {
 
 // ---------- Customer map & form ----------
 const LEAFLET_MAP_OPTS = {
+  scrollWheelZoom: true,
   zoomAnimation: true,
-  fadeAnimation: false,
+  fadeAnimation: true,
   markerZoomAnimation: true,
   inertia: true,
-  inertiaDeceleration: 2200,
+  inertiaDeceleration: 2400,
   inertiaMaxSpeed: 1800,
-  wheelDebounceTime: 25,
-  wheelPxPerZoomLevel: 120,
-  zoomSnap: 0.25,
-  zoomDelta: 0.5,
+  wheelDebounceTime: 40,
+  wheelPxPerZoomLevel: 70,
+  zoomSnap: 1,
+  zoomDelta: 1,
 };
 
 function initCustomerMap() {
