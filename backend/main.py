@@ -1,3 +1,8 @@
+"""FastAPI entry point for RapidAid.
+
+Handles auth (signed tokens), public emergency request submission/tracking,
+dispatcher-only triage/assignment endpoints, and serves the static frontend.
+"""
 import asyncio
 import logging
 import os

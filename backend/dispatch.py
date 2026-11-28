@@ -92,6 +92,8 @@ def estimate_eta_seconds(distance_km: float) -> int:
 
 
 class DispatchManager:
+    """Thread-safe dispatch state machine backed by SQLite (rapidaid.db)."""
+
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self.ambulances: Dict[str, Ambulance] = {}
@@ -399,6 +401,7 @@ class DispatchManager:
             return req
 
     def tick_simulation(self, dt_seconds: float = 1.5) -> None:
+        """Advance all active ambulances every 1.5s: TO_PATIENT -> TO_HOSPITAL -> AT_HOSPITAL -> RETURNING."""
         with self._lock:
             now = time.time()
             changed = False
